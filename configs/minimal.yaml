@@ -1,0 +1,42 @@
+# Minimal Stream Bridge Configuration
+# This is a minimal configuration for local development and testing
+
+mysql:
+  host: "localhost"
+  port: 3306
+  username: "root"
+  password: "password"
+  database: "test_db"
+  server_id: 1001
+
+clickhouse:
+  addresses:
+    - "localhost:9000"
+  database: "default"
+  username: "default"
+  password: ""
+
+pipeline:
+  batch_size: 100
+  worker_count: 2
+
+monitoring:
+  enabled: true
+  port: 8080
+
+logging:
+  level: "debug"
+  format: "console"
+
+state:
+  type: "clickhouse"
+  checkpoint_interval: "10s"
+
+snapshot:
+  # Enable initial snapshot for development
+  enabled: true
+  chunk_size: 1000
+  parallel_tables: 1
+  timeout: "30m"
+  create_missing_tables: true
+  skip_data_load: false  # Set to true to skip data loading

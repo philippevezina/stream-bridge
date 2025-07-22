@@ -1,0 +1,5 @@
+configs/local.yaml
+/stream-bridge
+!*/stream-bridge/
+REPORT.md
+NOTES.md

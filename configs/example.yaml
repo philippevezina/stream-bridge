@@ -1,0 +1,254 @@
+# Stream Bridge Configuration Example
+# This is a comprehensive example configuration for the MySQL to ClickHouse replicator
+
+mysql:
+  host: "localhost"
+  port: 3306
+  username: "replicator"
+  password: "password123"
+  database: "production_db"
+  server_id: 1001
+  flavor: "mysql"
+
+  # SSL/TLS Configuration
+  # disabled: No SSL encryption
+  # preferred: Try SSL, fallback to plaintext if SSL fails (default)
+  # required: Require SSL, fail if SSL not available
+  # verify_ca: Require SSL + verify server certificate against CA
+  # verify_identity: Require SSL + verify CA + verify hostname
+  ssl_mode: "preferred"
+
+  # SSL certificates (optional for preferred/required, required for verify_ca/verify_identity)
+  # ssl_cert: "/path/to/client-cert.pem"   # Client certificate for mutual TLS
+  # ssl_key: "/path/to/client-key.pem"     # Client private key
+  # ssl_ca: "/path/to/ca-cert.pem"         # CA certificate (required for verify_ca/verify_identity)
+
+  table_filter:
+    # Include patterns support regular expressions
+    include_patterns:
+      - "production_db\\.users"
+      - "production_db\\.orders.*"
+      - "analytics_db\\..*"
+
+    # Exclude patterns to filter out unwanted tables
+    exclude_patterns:
+      - ".*_temp"
+      - ".*_backup"
+      - "test_.*"
+
+    # Explicit table inclusion (database.table format)
+    include_tables:
+      - "production_db.customers"
+      - "production_db.products"
+
+    # Explicit table exclusion
+    exclude_tables:
+      - "production_db.sessions"
+      - "production_db.logs"
+
+clickhouse:
+  # Multiple addresses for ClickHouse cluster
+  addresses:
+    - "clickhouse-01.example.com:9000"
+    - "clickhouse-02.example.com:9000"
+    - "clickhouse-03.example.com:9000"
+  database: "analytics"
+  username: "replicator"
+  password: "clickhouse_password"
+  enable_ssl: false
+  dial_timeout: "10s"
+  max_open_conns: 10
+  max_idle_conns: 5
+  max_lifetime: "1h"
+
+pipeline:
+  # Batch size for bulk operations
+  batch_size: 1000
+
+  # Maximum time to wait before flushing a batch
+  batch_timeout: "5s"
+
+  # Number of retry attempts for failed operations
+  max_retries: 3
+
+  # Delay between retry attempts
+  retry_delay: "1s"
+
+  # Number of worker goroutines for processing events
+  worker_count: 4
+
+  # Size of the event buffer
+  buffer_size: 10000
+
+  # Interval for flushing batches regardless of size
+  flush_interval: "10s"
+
+  # Maximum time to wait for active batches to complete before executing DDL
+  # This ensures proper ordering between DDL and DML events
+  ddl_flush_timeout: "1m"
+
+monitoring:
+  # Enable Prometheus metrics and health endpoints
+  enabled: true
+
+  # Port for metrics server
+  port: 8080
+
+  # Path for Prometheus metrics
+  metrics_path: "/metrics"
+
+  # Path for health check
+  health_path: "/health"
+
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+
+  # Format: json, console
+  format: "json"
+
+  # Output path: stdout, stderr, or file path (e.g., "/var/log/stream-bridge/app.log")
+  output_path: "stdout"
+
+  # Log rotation settings (only used when output_path is a file path)
+  # Maximum size of log file in megabytes before rotation
+  max_size: 100
+
+  # Maximum number of old log files to retain
+  max_backups: 3
+
+  # Maximum age of log files in days before deletion
+  max_age: 7
+
+  # Whether to compress rotated log files using gzip
+  compress: true
+
+  # Whether to use local time for filenames (false = UTC)
+  local_time: false
+
+state:
+  # Storage type: clickhouse, file
+  type: "clickhouse"
+
+  # ClickHouse-based checkpoint storage (recommended)
+  clickhouse:
+    database: "stream_bridge_metadata"
+    table: "checkpoints"
+
+  # How often to create checkpoints
+  checkpoint_interval: "30s"
+
+  # How long to retain old checkpoints
+  retention_period: "168h"
+
+schema:
+  # Default ClickHouse table engine for new tables
+  # Supported engines: ReplacingMergeTree, ReplicatedReplacingMergeTree
+  default_engine: "ReplacingMergeTree"
+
+  # Preserve nullable columns from MySQL
+  preserve_nullable: true
+
+  # Timestamp precision (3 = milliseconds, 6 = microseconds)
+  timestamp_precision: 3
+
+snapshot:
+  # Enable initial snapshot on startup
+  enabled: false
+
+  # Number of rows to process in each chunk
+  chunk_size: 10000
+
+  # Number of tables to snapshot in parallel
+  parallel_tables: 2
+
+  # Maximum time to wait for snapshot completion
+  timeout: "2h"
+
+  # Resume snapshot on failure
+  resume_on_failure: true
+
+  # Maximum number of retry attempts for failed operations
+  max_retries: 3
+
+  # Delay between retry attempts
+  retry_delay: "5s"
+
+  # Timeout for acquiring MySQL read lock
+  lock_timeout: "30s"
+
+  # Locking strategy for consistent snapshots
+  # auto: Automatically detect and use MySQL 8.0+ backup locks if available, otherwise FLUSH TABLES WITH READ LOCK
+  # flush_tables: Always use FLUSH TABLES WITH READ LOCK (legacy compatibility)
+  # backup_locks: Force use of MySQL 8.0+ backup locks (requires MySQL 8.0+ or Percona Server 8.0+ with BACKUP_ADMIN privilege)
+  lock_strategy: "auto"
+
+  # Automatically create missing ClickHouse tables during snapshot
+  # When enabled, the snapshot process will create ClickHouse tables if they don't exist
+  # before attempting to load data. Uses the configured schema default_engine.
+  create_missing_tables: true
+
+  # Skip initial data loading during snapshot
+  # When enabled, the snapshot will:
+  # - Create ClickHouse tables (if create_missing_tables is true)
+  # - Capture a consistent binlog position
+  # - Skip loading existing MySQL data
+  # - Immediately transition to CDC replication
+  # Useful for: starting fresh without historical data, large databases, dev/testing
+  skip_data_load: false
+
+# Observability Configuration
+# External error reporting and log shipping integrations
+observability:
+  # Error Reporting Configuration (Sentry)
+  error_reporting:
+    # Enable error reporting
+    enabled: false
+
+    # Provider: sentry, noop
+    provider: "sentry"
+
+    sentry:
+      # Sentry DSN - obtain from Sentry project settings
+      # Uses empty default (disabled) if SENTRY_DSN is not set
+      dsn: "${SENTRY_DSN:-}"
+
+      # Environment identifier (production, staging, development)
+      environment: "${SENTRY_ENVIRONMENT:-production}"
+
+      # Release version tag
+      release: "stream-bridge@1.0.0"
+
+      # Sample rate for error events (0.0 to 1.0)
+      sample_rate: 1.0
+
+      # Enable Sentry debug mode
+      debug: false
+
+      # Timeout for flushing events during shutdown
+      flush_timeout: "5s"
+
+  # Log Exporting Configuration (NewRelic)
+  log_exporting:
+    # Enable log exporting
+    enabled: false
+
+    # Provider: newrelic, noop
+    provider: "newrelic"
+
+    newrelic:
+      # NewRelic license key - obtain from NewRelic account settings
+      # Uses empty default (disabled) if NEW_RELIC_LICENSE_KEY is not set
+      license_key: "${NEW_RELIC_LICENSE_KEY:-}"
+
+      # Application name in NewRelic
+      app_name: "${NEW_RELIC_APP_NAME:-stream-bridge}"
+
+      # Enable log forwarding to NewRelic Logs
+      log_forwarding: true
+
+      # Minimum log level to export (debug, info, warn, error)
+      min_log_level: "info"
+
+      # Timeout for flushing logs during shutdown
+      flush_timeout: "5s"

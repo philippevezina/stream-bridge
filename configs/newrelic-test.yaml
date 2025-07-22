@@ -1,0 +1,28 @@
+# Minimal config for NewRelic testing
+# Run: NEW_RELIC_LICENSE_KEY="your-key" ./stream-bridge -config configs/newrelic-test.yaml -test-newrelic
+
+mysql:
+  host: "localhost"
+  username: "test"
+  password: "test"
+
+clickhouse:
+  addresses:
+    - "localhost:9000"
+  username: "default"
+
+logging:
+  level: "debug"
+  format: "json"
+  output_path: "stdout"
+
+observability:
+  log_exporting:
+    enabled: true
+    provider: "newrelic"
+    newrelic:
+      license_key: "${NEW_RELIC_LICENSE_KEY}"
+      app_name: "stream-bridge-test"
+      log_forwarding: true
+      min_log_level: "debug"
+      flush_timeout: "15s"
