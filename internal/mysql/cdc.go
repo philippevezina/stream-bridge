@@ -464,6 +464,19 @@ func (c *CDC) tryCreateCheckpoint(ctx context.Context) {
 		return
 	}
 
+	// Flush all pending events before creating checkpoint to ensure data consistency.
+	// This guarantees that checkpoints are only saved AFTER data is written to ClickHouse,
+	// preventing data loss on crash/restart.
+	if c.flusher != nil {
+		flushTimeout := 30 * time.Second
+		if err := c.flusher.FlushAndWaitForCompletion(ctx, flushTimeout); err != nil {
+			c.logger.Warn("Skipping checkpoint creation: failed to flush pending events",
+				zap.Error(err),
+				zap.Duration("timeout", flushTimeout))
+			return
+		}
+	}
+
 	c.mu.RLock()
 	position := common.BinlogPosition{
 		File:   c.position.Name,
