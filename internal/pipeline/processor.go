@@ -196,10 +196,31 @@ func (p *Processor) Stop() error {
 		return nil
 	}
 
-	// Signal shutdown first
+	// Signal shutdown first - this stops accepting new events
 	p.shutdownOnce.Do(func() {
 		close(p.shutdown)
 	})
+
+	// Flush all pending batches to workers before cancelling context
+	p.logger.Info("Flushing pending batches during shutdown")
+	p.batcher.flushAll()
+
+	// Wait for active batches to complete with a timeout
+	// This prevents "Failed to process event group" errors from context cancellation
+	shutdownTimeout := 30 * time.Second
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.batcher.activeBatches.Wait()
+	}()
+
+	select {
+	case <-done:
+		p.logger.Info("All active batches completed during shutdown")
+	case <-time.After(shutdownTimeout):
+		p.logger.Warn("Shutdown timeout reached, some batches may not have completed",
+			zap.Duration("timeout", shutdownTimeout))
+	}
 
 	// Cancel context to stop all goroutines (table workers will exit via ctx.Done())
 	p.cancel()
