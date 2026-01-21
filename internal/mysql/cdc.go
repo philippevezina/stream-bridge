@@ -200,8 +200,8 @@ func (c *CDC) setupSyncer(ctx context.Context) error {
 	c.syncer = replication.NewBinlogSyncer(syncerCfg)
 
 	if c.position.Name == "" {
-		// Pass context to loadFromCheckpoint
-		if err := c.loadFromCheckpoint(ctx); err != nil {
+		// Note: caller (Start or recoverConnection) holds c.mu
+		if err := c.loadFromCheckpointLocked(ctx); err != nil {
 			c.logger.Warn("Failed to load from state storage, starting from current position", zap.Error(err))
 
 			// Pass context to getCurrentPosition
@@ -245,7 +245,9 @@ func (c *CDC) getCurrentPosition(ctx context.Context) (mysql.Position, error) {
 	return mysql.Position{Name: file, Pos: uint32(pos)}, nil
 }
 
-func (c *CDC) loadFromCheckpoint(ctx context.Context) error {
+// loadFromCheckpointLocked loads position and lastEventTime from checkpoint storage.
+// REQUIRES: c.mu must be held by the caller.
+func (c *CDC) loadFromCheckpointLocked(ctx context.Context) error {
 	if c.stateManager == nil {
 		return fmt.Errorf("state manager not available")
 	}
