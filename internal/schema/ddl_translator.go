@@ -219,13 +219,11 @@ func (dt *DDLTranslator) translateAlterTable(mysqlDDL *DDLStatement, _ clickhous
 			}
 
 		case DDLActionChangeColumn:
-			stmt, warning, err := dt.translateChangeColumn(chDDL.Database, mysqlDDL.Table, operation)
+			stmts, warning, err := dt.translateChangeColumn(chDDL.Database, mysqlDDL.Table, operation)
 			if err != nil {
 				return nil, fmt.Errorf("failed to translate CHANGE COLUMN: %w", err)
 			}
-			if stmt != "" {
-				statements = append(statements, stmt)
-			}
+			statements = append(statements, stmts...)
 			if warning != "" {
 				warnings = append(warnings, warning)
 			}
@@ -397,36 +395,36 @@ func (dt *DDLTranslator) translateModifyColumn(database, table string, operation
 	return alterStatement.String(), warning, nil
 }
 
-func (dt *DDLTranslator) translateChangeColumn(database, table string, operation DDLOperation) (string, string, error) {
+func (dt *DDLTranslator) translateChangeColumn(database, table string, operation DDLOperation) ([]string, string, error) {
 	// SECURITY: Validate identifiers
 	if err := security.ValidateIdentifier(database, "database name"); err != nil {
-		return "", "", fmt.Errorf("invalid database name: %w", err)
+		return nil, "", fmt.Errorf("invalid database name: %w", err)
 	}
 	if err := security.ValidateIdentifier(table, "table name"); err != nil {
-		return "", "", fmt.Errorf("invalid table name: %w", err)
+		return nil, "", fmt.Errorf("invalid table name: %w", err)
 	}
 
 	if operation.Column == nil {
-		return "", "", fmt.Errorf("CHANGE COLUMN operation missing column definition")
+		return nil, "", fmt.Errorf("CHANGE COLUMN operation missing column definition")
 	}
 
 	if operation.OldName == "" {
-		return "", "", fmt.Errorf("CHANGE COLUMN operation missing old column name")
+		return nil, "", fmt.Errorf("CHANGE COLUMN operation missing old column name")
 	}
 
 	// SECURITY: Validate column names
 	if err := security.ValidateIdentifier(operation.OldName, "old column name"); err != nil {
-		return "", "", fmt.Errorf("invalid old column name: %w", err)
+		return nil, "", fmt.Errorf("invalid old column name: %w", err)
 	}
 
 	chCol, err := dt.translateDDLColumn(*operation.Column)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to translate column type: %w", err)
+		return nil, "", fmt.Errorf("failed to translate column type: %w", err)
 	}
 
 	// SECURITY: Validate new column name
 	if err := security.ValidateIdentifier(chCol.Name, "new column name"); err != nil {
-		return "", "", fmt.Errorf("invalid new column name: %w", err)
+		return nil, "", fmt.Errorf("invalid new column name: %w", err)
 	}
 
 	escapedDB := security.EscapeIdentifier(database)
@@ -434,28 +432,31 @@ func (dt *DDLTranslator) translateChangeColumn(database, table string, operation
 	escapedOldCol := security.EscapeIdentifier(operation.OldName)
 	escapedNewCol := security.EscapeIdentifier(operation.Column.Name)
 
-	var alterStatement strings.Builder
+	var statements []string
 
+	// If renaming, add RENAME statement first (must execute before MODIFY)
 	if operation.OldName != operation.Column.Name {
-		alterStatement.WriteString(fmt.Sprintf("ALTER TABLE %s.%s RENAME COLUMN %s TO %s",
-			escapedDB, escapedTable, escapedOldCol, escapedNewCol))
-
-		alterStatement.WriteString("; ")
+		renameStmt := fmt.Sprintf("ALTER TABLE %s.%s RENAME COLUMN %s TO %s",
+			escapedDB, escapedTable, escapedOldCol, escapedNewCol)
+		statements = append(statements, renameStmt)
 	}
 
-	alterStatement.WriteString(fmt.Sprintf("ALTER TABLE %s.%s MODIFY COLUMN %s %s",
+	// Add MODIFY statement
+	var modifyStmt strings.Builder
+	modifyStmt.WriteString(fmt.Sprintf("ALTER TABLE %s.%s MODIFY COLUMN %s %s",
 		escapedDB, escapedTable, escapedNewCol, chCol.Type))
 
 	if chCol.DefaultValue != "" {
-		alterStatement.WriteString(fmt.Sprintf(" DEFAULT %s", chCol.DefaultValue))
+		modifyStmt.WriteString(fmt.Sprintf(" DEFAULT %s", chCol.DefaultValue))
 	}
+	statements = append(statements, modifyStmt.String())
 
 	warning := ""
 	if operation.OldName != operation.Column.Name {
 		warning = fmt.Sprintf("Column renamed from '%s' to '%s' and type changed", operation.OldName, operation.Column.Name)
 	}
 
-	return alterStatement.String(), warning, nil
+	return statements, warning, nil
 }
 
 func (dt *DDLTranslator) translateDDLColumn(mysqlCol DDLColumn) (*ClickHouseColumn, error) {
