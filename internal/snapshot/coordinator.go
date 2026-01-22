@@ -228,17 +228,18 @@ func (c *Coordinator) captureWithFlushTables() (*common.BinlogPosition, error) {
 		return nil, fmt.Errorf("failed to flush tables with read lock: %w", err)
 	}
 
+	// Ensure unlock always happens, even on error paths
+	defer func() {
+		if unlockErr := c.unlockTables(); unlockErr != nil {
+			c.logger.Error("CRITICAL: Failed to unlock MySQL tables - manual intervention may be required",
+				zap.Error(unlockErr))
+		}
+	}()
+
 	// Capture the current binlog position
 	position, err := c.getCurrentBinlogPosition()
 	if err != nil {
-		// Always unlock, even if position capture fails
-		c.unlockTables()
 		return nil, fmt.Errorf("failed to get binlog position: %w", err)
-	}
-
-	// Release the lock
-	if err := c.unlockTables(); err != nil {
-		return nil, fmt.Errorf("failed to unlock tables: %w", err)
 	}
 
 	return position, nil
