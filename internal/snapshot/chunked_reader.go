@@ -48,30 +48,6 @@ func (cr *ChunkedReader) Start(ctx context.Context) error {
 	return nil
 }
 
-func (cr *ChunkedReader) Stop() error {
-	cr.mu.Lock()
-	if cr.stopped {
-		cr.mu.Unlock()
-		return nil
-	}
-	cr.stopped = true
-	cr.mu.Unlock()
-
-	cr.stopOnce.Do(func() {
-		if cr.stopChan != nil {
-			close(cr.stopChan)
-		}
-		if cr.chunkChan != nil {
-			close(cr.chunkChan)
-		}
-		if cr.errorChan != nil {
-			close(cr.errorChan)
-		}
-		cr.logger.Info("Chunked reader stopped")
-	})
-	return nil
-}
-
 func (cr *ChunkedReader) GetTableRowCount(ctx context.Context, database, table string) (int64, error) {
 	// SECURITY: Validate all identifiers before using in SQL queries
 	if err := security.ValidateIdentifier(database, "database name"); err != nil {
@@ -387,12 +363,4 @@ func (cr *ChunkedReader) getPrimaryKeyColumnIndex(result *mysql.Result, primaryK
 		}
 	}
 	return 0
-}
-
-func (cr *ChunkedReader) ChunkChan() <-chan *ChunkInfo {
-	return cr.chunkChan
-}
-
-func (cr *ChunkedReader) ErrorChan() <-chan error {
-	return cr.errorChan
 }

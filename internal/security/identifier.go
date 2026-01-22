@@ -66,38 +66,3 @@ func EscapeIdentifier(identifier string) string {
 	// Wrap in backticks
 	return fmt.Sprintf("`%s`", escaped)
 }
-
-// ValidateAndEscapeIdentifier combines validation and escaping in a single operation.
-// This is the recommended function to use for all SQL identifier interpolation.
-//
-// Parameters:
-//   - identifier: The identifier to validate and escape
-//   - identifierType: Human-readable type for error messages
-//
-// Returns:
-//   - Escaped identifier ready for SQL interpolation (e.g., "`my_table`")
-//   - Error if validation fails
-func ValidateAndEscapeIdentifier(identifier string, identifierType string) (string, error) {
-	if err := ValidateIdentifier(identifier, identifierType); err != nil {
-		return "", err
-	}
-	return EscapeIdentifier(identifier), nil
-}
-
-// ValidateIdentifiers validates multiple identifiers at once.
-// Returns an error on the first validation failure.
-//
-// Parameters:
-//   - identifiers: Map of identifier name -> identifier value (e.g., {"table": "users", "column": "id"})
-//
-// Returns:
-//   - nil if all identifiers are valid
-//   - error on first validation failure
-func ValidateIdentifiers(identifiers map[string]string) error {
-	for identifierType, identifier := range identifiers {
-		if err := ValidateIdentifier(identifier, identifierType); err != nil {
-			return err
-		}
-	}
-	return nil
-}

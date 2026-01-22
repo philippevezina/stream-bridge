@@ -115,12 +115,6 @@ func (d *Discovery) GetAllTables() map[string]*common.TableInfo {
 	return result
 }
 
-func (d *Discovery) IsRunning() bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.running
-}
-
 func (d *Discovery) connect() error {
 	conn, err := d.connector.Connect(d.cfg.Database)
 	if err != nil {

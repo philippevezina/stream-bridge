@@ -8,6 +8,7 @@ require (
 	github.com/go-mysql-org/go-mysql v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/newrelic/go-agent/v3 v3.42.0
+	github.com/newrelic/go-agent/v3/integrations/logcontext-v2/nrzap v1.2.4
 	github.com/prometheus/client_golang v1.22.0
 	github.com/spf13/viper v1.20.1
 	go.uber.org/zap v1.27.0
@@ -28,7 +29,6 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/newrelic/go-agent/v3/integrations/logcontext-v2/nrzap v1.2.4 // indirect
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect

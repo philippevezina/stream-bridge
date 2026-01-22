@@ -36,26 +36,6 @@ func (s Severity) String() string {
 	}
 }
 
-// SeverityFromString converts a string to a Severity level.
-func SeverityFromString(s string) Severity {
-	switch s {
-	case "debug":
-		return SeverityDebug
-	case "info":
-		return SeverityInfo
-	case "warning", "warn":
-		return SeverityWarning
-	case "error":
-		return SeverityError
-	case "critical":
-		return SeverityCritical
-	case "fatal":
-		return SeverityFatal
-	default:
-		return SeverityInfo
-	}
-}
-
 // ErrorContext provides contextual information for error reporting.
 type ErrorContext struct {
 	// Component identifies the application component where the error occurred.

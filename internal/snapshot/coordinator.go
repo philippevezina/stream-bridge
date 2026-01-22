@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
-	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.uber.org/zap"
 
 	"github.com/philippevezina/stream-bridge/internal/common"
@@ -510,110 +508,6 @@ func (c *Coordinator) getCurrentBinlogPosition() (*common.BinlogPosition, error)
 	return binlogPos, nil
 }
 
-func (c *Coordinator) ValidatePosition(ctx context.Context, position *common.BinlogPosition) error {
-	c.logger.Debug("Validating binlog position",
-		zap.String("file", position.File),
-		zap.Uint32("offset", position.Offset),
-		zap.String("gtid", position.GTID))
-
-	if c.conn == nil {
-		if err := c.connect(); err != nil {
-			return fmt.Errorf("failed to connect to MySQL: %w", err)
-		}
-	}
-
-	// Check if the binlog file exists
-	result, err := c.conn.Execute("SHOW BINARY LOGS")
-	if err != nil {
-		return fmt.Errorf("failed to show binary logs: %w", err)
-	}
-
-	found := false
-	for i := 0; i < result.RowNumber(); i++ {
-		logFile, err := result.GetString(i, 0)
-		if err != nil {
-			continue
-		}
-		if logFile == position.File {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("binlog file %s not found", position.File)
-	}
-
-	// Validate GTID if present
-	if position.GTID != "" {
-		if err := c.validateGTID(position.GTID); err != nil {
-			return fmt.Errorf("invalid GTID: %w", err)
-		}
-	}
-
-	c.logger.Debug("Binlog position validated successfully")
-	return nil
-}
-
-func (c *Coordinator) validateGTID(gtid string) error {
-	// Parse the GTID to ensure it's valid
-	if _, err := mysql.ParseGTIDSet(c.cfg.Flavor, gtid); err != nil {
-		return fmt.Errorf("failed to parse GTID %s: %w", gtid, err)
-	}
-	return nil
-}
-
-func (c *Coordinator) WaitForPosition(ctx context.Context, position *common.BinlogPosition, timeout time.Duration) error {
-	c.logger.Debug("Waiting for binlog position",
-		zap.String("file", position.File),
-		zap.Uint32("offset", position.Offset),
-		zap.Duration("timeout", timeout))
-
-	if c.conn == nil {
-		if err := c.connect(); err != nil {
-			return fmt.Errorf("failed to connect to MySQL: %w", err)
-		}
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeoutCtx.Done():
-			return fmt.Errorf("timeout waiting for position %s:%d", position.File, position.Offset)
-		case <-ticker.C:
-			currentPos, err := c.getCurrentBinlogPosition()
-			if err != nil {
-				return fmt.Errorf("failed to get current position: %w", err)
-			}
-
-			// Check if we've reached or passed the target position
-			if c.isPositionReached(currentPos, position) {
-				c.logger.Debug("Target position reached",
-					zap.String("target_file", position.File),
-					zap.Uint32("target_offset", position.Offset),
-					zap.String("current_file", currentPos.File),
-					zap.Uint32("current_offset", currentPos.Offset))
-				return nil
-			}
-		}
-	}
-}
-
-func (c *Coordinator) isPositionReached(current, target *common.BinlogPosition) bool {
-	if current.File > target.File {
-		return true
-	}
-	if current.File == target.File && current.Offset >= target.Offset {
-		return true
-	}
-	return false
-}
-
 func (c *Coordinator) connect() error {
 	conn, err := c.connector.Connect(c.cfg.Database)
 	if err != nil {
@@ -622,8 +516,4 @@ func (c *Coordinator) connect() error {
 
 	c.conn = conn
 	return nil
-}
-
-func (c *Coordinator) GetConnection() *client.Conn {
-	return c.conn
 }

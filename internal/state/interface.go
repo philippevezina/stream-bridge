@@ -64,18 +64,11 @@ type StateStorage interface {
 type Config struct {
 	Type               string           `mapstructure:"type"`
 	ClickHouse         ClickHouseConfig `mapstructure:"clickhouse"`
-	File               FileConfig       `mapstructure:"file"`
 	CheckpointInterval time.Duration    `mapstructure:"checkpoint_interval"`
 	RetentionPeriod    time.Duration    `mapstructure:"retention_period"`
-	TableName          string           `mapstructure:"table_name"`
 }
 
 type ClickHouseConfig struct {
 	Database string `mapstructure:"database"`
 	Table    string `mapstructure:"table"`
-}
-
-type FileConfig struct {
-	Path       string `mapstructure:"path"`
-	BackupPath string `mapstructure:"backup_path"`
 }

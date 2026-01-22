@@ -49,23 +49,11 @@ type Column struct {
 }
 
 type Metrics struct {
-	EventsProcessed  int64          `json:"events_processed"`
-	EventsSuccessful int64          `json:"events_successful"`
-	EventsFailed     int64          `json:"events_failed"`
-	ReplicationLag   time.Duration  `json:"replication_lag"`
-	LastEventTime    time.Time      `json:"last_event_time"`
-	CurrentPosition  BinlogPosition `json:"current_position"`
-	ProcessingRate   float64        `json:"processing_rate"`
-	BatchSize        int            `json:"batch_size"`
-	QueueLength      int            `json:"queue_length"`
-}
-
-type HealthStatus struct {
-	Status              string        `json:"status"`
-	MySQLConnected      bool          `json:"mysql_connected"`
-	ClickHouseConnected bool          `json:"clickhouse_connected"`
-	ReplicationRunning  bool          `json:"replication_running"`
-	LastError           string        `json:"last_error,omitempty"`
-	Uptime              time.Duration `json:"uptime"`
-	Version             string        `json:"version"`
+	EventsProcessed  int64         `json:"events_processed"`
+	EventsSuccessful int64         `json:"events_successful"`
+	EventsFailed     int64         `json:"events_failed"`
+	ReplicationLag   time.Duration `json:"replication_lag"`
+	LastEventTime    time.Time     `json:"last_event_time"`
+	ProcessingRate   float64       `json:"processing_rate"`
+	QueueLength      int           `json:"queue_length"`
 }

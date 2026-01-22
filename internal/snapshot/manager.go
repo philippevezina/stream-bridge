@@ -206,46 +206,6 @@ func (m *Manager) ExecuteSnapshot(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) GetProgress() *state.SnapshotProgress {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.progress == nil {
-		return nil
-	}
-
-	// Return a copy to avoid race conditions
-	progressCopy := *m.progress
-	progressCopy.Tables = make(map[string]*state.TableSnapshot)
-	for k, v := range m.progress.Tables {
-		// Lock the table snapshot and copy fields individually (not the mutex)
-		v.Mu.RLock()
-		tableCopy := &state.TableSnapshot{
-			Database:        v.Database,
-			Table:           v.Table,
-			Status:          v.Status,
-			TotalRows:       v.TotalRows,
-			ProcessedRows:   v.ProcessedRows,
-			ChunkSize:       v.ChunkSize,
-			DataLoadEnabled: v.DataLoadEnabled,
-			StartTime:       v.StartTime,
-			EndTime:         v.EndTime,
-			Error:           v.Error,
-			Position:        v.Position,
-		}
-		v.Mu.RUnlock()
-		progressCopy.Tables[k] = tableCopy
-	}
-
-	return &progressCopy
-}
-
-func (m *Manager) IsRunning() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.running
-}
-
 func (m *Manager) initializeComponents(ctx context.Context) error {
 	// Initialize chunked reader
 	m.reader = NewChunkedReader(m.mysqlCfg, m.logger.With(zap.String("component", "chunked-reader")))

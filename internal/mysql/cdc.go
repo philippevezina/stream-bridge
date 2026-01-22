@@ -147,16 +147,6 @@ func (c *CDC) GetPosition() common.BinlogPosition {
 	}
 }
 
-func (c *CDC) SetPosition(pos common.BinlogPosition) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.position = mysql.Position{
-		Name: pos.File,
-		Pos:  pos.Offset,
-	}
-}
-
 func (c *CDC) IsRunning() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
