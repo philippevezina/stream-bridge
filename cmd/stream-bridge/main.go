@@ -507,6 +507,11 @@ func (a *Application) stop() error {
 func (a *Application) runEventForwarder(ctx context.Context) {
 	a.logger.Info("Starting event forwarder")
 
+	// Dedicated goroutines for error channels to prevent starvation during high event load
+	go a.runErrorHandler(ctx, a.mysqlCDC.ErrorChan(), "MySQL CDC", "mysql", "cdc_streaming")
+	go a.runErrorHandler(ctx, a.processor.ErrorChan(), "Processor", "pipeline", "event_processing")
+
+	// Main loop only handles events
 	for {
 		select {
 		case <-ctx.Done():
@@ -553,19 +558,26 @@ func (a *Application) runEventForwarder(ctx context.Context) {
 					return
 				}
 			}
-		case err := <-a.mysqlCDC.ErrorChan():
+		}
+	}
+}
+
+// runErrorHandler processes errors from a single error channel in a dedicated goroutine.
+// This prevents error handling from being starved when event processing is under high load.
+func (a *Application) runErrorHandler(ctx context.Context, errChan <-chan error, name, component, operation string) {
+	a.logger.Info("Starting error handler", zap.String("source", name))
+
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info("Error handler stopped", zap.String("source", name))
+			return
+		case err := <-errChan:
 			if err != nil {
-				a.logger.Error("MySQL CDC error", zap.Error(err))
+				a.logger.Error(name+" error", zap.Error(err))
 				a.metricsManager.GetMetrics().IncEventsFailed()
 				a.observabilityManager.GetErrorReporter().CaptureError(ctx, err,
-					observability.NewErrorContext("mysql", "cdc_streaming"))
-			}
-		case err := <-a.processor.ErrorChan():
-			if err != nil {
-				a.logger.Error("Processor error", zap.Error(err))
-				a.metricsManager.GetMetrics().IncEventsFailed()
-				a.observabilityManager.GetErrorReporter().CaptureError(ctx, err,
-					observability.NewErrorContext("pipeline", "event_processing"))
+					observability.NewErrorContext(component, operation))
 			}
 		}
 	}
