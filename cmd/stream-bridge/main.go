@@ -38,6 +38,8 @@ type Application struct {
 	forceSnapshot        bool
 	running              bool
 	mu                   sync.RWMutex
+	shutdownChan         chan error // Channel for programmatic shutdown requests
+	shutdownOnce         sync.Once  // Ensures shutdown is only triggered once
 }
 
 func main() {
@@ -253,6 +255,7 @@ func run(configPath string, enableSnapshot bool, forceSnapshot bool) error {
 		logger:               logger,
 		forceSnapshot:        forceSnapshot,
 		observabilityManager: observabilityManager,
+		shutdownChan:         make(chan error, 1),
 	}
 
 	if err := app.initialize(); err != nil {
@@ -536,16 +539,25 @@ func (a *Application) runEventForwarder(ctx context.Context) {
 					zap.Int("queue_length", queueLength),
 					zap.Int("queue_capacity", queueCapacity))
 
-				// Use timeout to prevent indefinite blocking while still applying backpressure
-				timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+				// Use a longer timeout (5 minutes) before taking drastic action.
+				// If we still can't forward the event, initiate graceful shutdown
+				// to prevent data loss. On restart, we'll resume from the last checkpoint.
+				timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute*5)
 				select {
 				case a.processor.EventChan() <- event:
 					cancel()
 				case <-timeoutCtx.Done():
 					cancel()
-					a.logger.Error("Failed to forward event after backpressure timeout",
-						zap.String("event_id", event.ID))
+					// Sustained backpressure for 5 minutes - system cannot keep up.
+					// Initiate graceful shutdown to prevent data loss.
+					// On restart, we'll resume from the last checkpoint.
+					a.logger.Error("Sustained backpressure detected - initiating shutdown to prevent data loss",
+						zap.String("event_id", event.ID),
+						zap.Int("queue_length", queueLength),
+						zap.Int("queue_capacity", queueCapacity))
 					a.metricsManager.GetMetrics().IncEventsFailed()
+					a.requestShutdown(fmt.Errorf("sustained backpressure: processor cannot keep up with event rate after 5 minutes"))
+					return
 				case <-ctx.Done():
 					cancel()
 					return
@@ -654,6 +666,25 @@ func (a *Application) waitForShutdown() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	sig := <-sigChan
-	a.logger.Info("Received shutdown signal", zap.String("signal", sig.String()))
+	select {
+	case sig := <-sigChan:
+		a.logger.Info("Received shutdown signal", zap.String("signal", sig.String()))
+	case err := <-a.shutdownChan:
+		a.logger.Error("Programmatic shutdown requested", zap.Error(err))
+	}
+}
+
+// requestShutdown initiates a graceful shutdown of the application.
+// This is used when the application detects an unrecoverable condition
+// (e.g., sustained backpressure) and needs to stop to prevent data loss.
+// The shutdown is guaranteed to only happen once even if called multiple times.
+func (a *Application) requestShutdown(reason error) {
+	a.shutdownOnce.Do(func() {
+		a.logger.Warn("Shutdown requested", zap.Error(reason))
+		select {
+		case a.shutdownChan <- reason:
+		default:
+			// Channel already has a shutdown request
+		}
+	})
 }
