@@ -578,14 +578,16 @@ func (c *CDC) convertRowsEvent(header *replication.EventHeader, e *replication.R
 		for i, row := range e.Rows {
 			event, err := c.createSingleRowEvent(header, e, eventType, row, nil)
 			if err != nil {
-				c.logger.Error("Failed to create INSERT event for row due to missing metadata",
+				c.logger.Error("CRITICAL: Cannot create INSERT event due to missing binlog metadata - STOPPING CDC",
 					zap.String("database", database),
 					zap.String("table", table),
 					zap.Int("row_index", i),
 					zap.String("position", fmt.Sprintf("%s:%d", c.position.Name, c.position.Pos)),
 					zap.Error(err))
-				c.safeErrorSend(fmt.Errorf("INSERT event skipped for row %d in %s.%s: %w", i, database, table, err))
-				continue
+				// Send fatal error to signal CDC should stop - do not skip rows as this causes silent data loss
+				c.safeErrorSend(fmt.Errorf("FATAL: missing binlog metadata for INSERT in %s.%s row %d: %w", database, table, i, err))
+				// Return nil to stop processing - the error channel will signal shutdown
+				return nil
 			}
 			events = append(events, event)
 		}
@@ -621,14 +623,16 @@ func (c *CDC) convertRowsEvent(header *replication.EventHeader, e *replication.R
 
 			event, err := c.createSingleRowEvent(header, e, eventType, e.Rows[i+1], e.Rows[i])
 			if err != nil {
-				c.logger.Error("Failed to create UPDATE event for row pair due to missing metadata",
+				c.logger.Error("CRITICAL: Cannot create UPDATE event due to missing binlog metadata - STOPPING CDC",
 					zap.String("database", database),
 					zap.String("table", table),
 					zap.Int("pair_index", i/2),
 					zap.String("position", fmt.Sprintf("%s:%d", c.position.Name, c.position.Pos)),
 					zap.Error(err))
-				c.safeErrorSend(fmt.Errorf("UPDATE event skipped for pair %d in %s.%s: %w", i/2, database, table, err))
-				continue
+				// Send fatal error to signal CDC should stop - do not skip rows as this causes silent data loss
+				c.safeErrorSend(fmt.Errorf("FATAL: missing binlog metadata for UPDATE in %s.%s pair %d: %w", database, table, i/2, err))
+				// Return nil to stop processing - the error channel will signal shutdown
+				return nil
 			}
 			events = append(events, event)
 		}
@@ -648,14 +652,16 @@ func (c *CDC) convertRowsEvent(header *replication.EventHeader, e *replication.R
 		for i, row := range e.Rows {
 			event, err := c.createSingleRowEvent(header, e, eventType, nil, row)
 			if err != nil {
-				c.logger.Error("Failed to create DELETE event for row due to missing metadata",
+				c.logger.Error("CRITICAL: Cannot create DELETE event due to missing binlog metadata - STOPPING CDC",
 					zap.String("database", database),
 					zap.String("table", table),
 					zap.Int("row_index", i),
 					zap.String("position", fmt.Sprintf("%s:%d", c.position.Name, c.position.Pos)),
 					zap.Error(err))
-				c.safeErrorSend(fmt.Errorf("DELETE event skipped for row %d in %s.%s: %w", i, database, table, err))
-				continue
+				// Send fatal error to signal CDC should stop - do not skip rows as this causes silent data loss
+				c.safeErrorSend(fmt.Errorf("FATAL: missing binlog metadata for DELETE in %s.%s row %d: %w", database, table, i, err))
+				// Return nil to stop processing - the error channel will signal shutdown
+				return nil
 			}
 			events = append(events, event)
 		}
