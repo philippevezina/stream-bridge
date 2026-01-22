@@ -3,3 +3,4 @@ configs/local.yaml
 !*/stream-bridge/
 REPORT.md
 NOTES.md
+.DS_Store
