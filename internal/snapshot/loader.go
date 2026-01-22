@@ -10,7 +10,6 @@ import (
 	"github.com/philippevezina/stream-bridge/internal/clickhouse"
 	"github.com/philippevezina/stream-bridge/internal/common"
 	"github.com/philippevezina/stream-bridge/internal/schema"
-	"github.com/philippevezina/stream-bridge/internal/security"
 )
 
 type Loader struct {
@@ -138,34 +137,4 @@ func (l *Loader) LoadTable(ctx context.Context, database, table string, chunkCha
 				zap.Duration("duration", time.Since(startTime)))
 		}
 	}
-}
-
-func (l *Loader) ValidateTableData(ctx context.Context, database, table string, expectedRows int64) error {
-	// SECURITY: Validate identifiers before using in SQL
-	if err := security.ValidateIdentifier(database, "database name"); err != nil {
-		return fmt.Errorf("invalid database name: %w", err)
-	}
-	if err := security.ValidateIdentifier(table, "table name"); err != nil {
-		return fmt.Errorf("invalid table name: %w", err)
-	}
-
-	escapedDB := security.EscapeIdentifier(database)
-	escapedTable := security.EscapeIdentifier(table)
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", escapedDB, escapedTable)
-
-	var actualRows int64
-	if err := l.chClient.QueryRow(ctx, query).Scan(&actualRows); err != nil {
-		return fmt.Errorf("failed to validate table data: %w", err)
-	}
-
-	if actualRows != expectedRows {
-		return fmt.Errorf("row count mismatch: expected %d, got %d", expectedRows, actualRows)
-	}
-
-	l.logger.Info("Table data validation successful",
-		zap.String("database", database),
-		zap.String("table", table),
-		zap.Int64("rows", actualRows))
-
-	return nil
 }
