@@ -285,7 +285,7 @@ func (p *DDLParser) parseColumnDefinition(colDef string) (*DDLColumn, error) {
 	}
 
 	if len(matches) > 4 && matches[4] != "" {
-		column.DefaultValue = strings.Trim(matches[4], "'\"")
+		column.DefaultValue = p.cleanDefaultValue(matches[4])
 	}
 
 	if len(matches) > 5 && matches[5] != "" {
@@ -301,6 +301,65 @@ func (p *DDLParser) parseColumnDefinition(colDef string) (*DDLColumn, error) {
 	}
 
 	return column, nil
+}
+
+// cleanDefaultValue extracts the actual default value from a captured string,
+// removing any trailing SQL keywords (NOT NULL, NULL, etc.) that may have been
+// captured by the regex.
+func (p *DDLParser) cleanDefaultValue(rawDefault string) string {
+	rawDefault = strings.TrimSpace(rawDefault)
+	if rawDefault == "" {
+		return ""
+	}
+
+	// If the value starts with a single quote, extract the quoted string
+	if strings.HasPrefix(rawDefault, "'") {
+		// Find the closing quote (handling escaped quotes)
+		i := 1
+		for i < len(rawDefault) {
+			if rawDefault[i] == '\'' {
+				// Check if it's an escaped quote ('')
+				if i+1 < len(rawDefault) && rawDefault[i+1] == '\'' {
+					i += 2
+					continue
+				}
+				// Found the closing quote - return content without quotes
+				return rawDefault[1:i]
+			}
+			i++
+		}
+		// No closing quote found, return as-is without leading quote
+		return rawDefault[1:]
+	}
+
+	// If the value starts with a double quote, extract the quoted string
+	if strings.HasPrefix(rawDefault, "\"") {
+		// Find the closing quote
+		i := 1
+		for i < len(rawDefault) {
+			if rawDefault[i] == '"' {
+				// Check if it's an escaped quote
+				if i+1 < len(rawDefault) && rawDefault[i+1] == '"' {
+					i += 2
+					continue
+				}
+				// Found the closing quote - return content without quotes
+				return rawDefault[1:i]
+			}
+			i++
+		}
+		// No closing quote found, return as-is without leading quote
+		return rawDefault[1:]
+	}
+
+	// For unquoted values, take only the first token (stop at whitespace)
+	// This handles cases like "0 NOT NULL" -> "0"
+	parts := strings.Fields(rawDefault)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
+	return rawDefault
 }
 
 func (p *DDLParser) extractBaseType(rawType string) string {
