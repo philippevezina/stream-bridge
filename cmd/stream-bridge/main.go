@@ -304,7 +304,7 @@ func (a *Application) initialize() error {
 	}
 	a.clickhouseClient = clickhouseClient
 
-	stateManager, err := state.NewManager(a.cfg.State, clickhouseClient, common.LoggerWithComponent(a.logger, "state"))
+	stateManager, err := state.NewManager(a.cfg.State, clickhouseClient, common.LoggerWithComponent(a.logger, "state"), a.cfg.ClickHouse.Cluster)
 	if err != nil {
 		return fmt.Errorf("failed to create state manager: %w", err)
 	}

@@ -25,7 +25,7 @@ type Manager struct {
 	eventsSinceCheckpoint int64
 }
 
-func NewManager(cfg config.StateConfig, clickhouseClient *clickhouse.Client, logger *zap.Logger) (*Manager, error) {
+func NewManager(cfg config.StateConfig, clickhouseClient *clickhouse.Client, logger *zap.Logger, clickhouseCluster string) (*Manager, error) {
 	var storage StateStorage
 
 	switch cfg.Type {
@@ -39,7 +39,7 @@ func NewManager(cfg config.StateConfig, clickhouseClient *clickhouse.Client, log
 				Table:    cfg.ClickHouse.Table,
 			},
 		}
-		storage = NewClickHouseStorage(clickhouseClient, logger, stateConfig)
+		storage = NewClickHouseStorage(clickhouseClient, logger, stateConfig, clickhouseCluster)
 	case "file":
 		return nil, fmt.Errorf("file storage not implemented yet")
 	default:

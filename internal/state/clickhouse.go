@@ -19,9 +19,10 @@ type ClickHouseStorage struct {
 	logger    *zap.Logger
 	config    Config
 	tableName string
+	cluster   string
 }
 
-func NewClickHouseStorage(client *clickhouse.Client, logger *zap.Logger, config Config) *ClickHouseStorage {
+func NewClickHouseStorage(client *clickhouse.Client, logger *zap.Logger, config Config, cluster string) *ClickHouseStorage {
 	tableName := config.ClickHouse.Table
 	if tableName == "" {
 		tableName = "stream_bridge_checkpoints"
@@ -32,6 +33,7 @@ func NewClickHouseStorage(client *clickhouse.Client, logger *zap.Logger, config 
 		logger:    logger,
 		config:    config,
 		tableName: tableName,
+		cluster:   cluster,
 	}
 }
 
@@ -262,6 +264,8 @@ func (s *ClickHouseStorage) createCheckpointTable(ctx context.Context) error {
 		ORDER BY (id, created_at)
 		TTL toDateTime(created_at) + toIntervalSecond(%d) DELETE
 	`, escapedDB, escapedTable, retentionSeconds)
+
+	query = clickhouse.InjectOnCluster(query, s.cluster)
 
 	err := s.executeQuery(ctx, query)
 	if err != nil {
@@ -510,6 +514,8 @@ func (s *ClickHouseStorage) createSnapshotTable(ctx context.Context) error {
 		) ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY (id)
 	`, s.getFullSnapshotTableName())
+
+	query = clickhouse.InjectOnCluster(query, s.cluster)
 
 	err := s.executeQuery(ctx, query)
 	if err != nil {
