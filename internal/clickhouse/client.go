@@ -713,6 +713,60 @@ func (c *Client) ExecuteDDL(ctx context.Context, ddlStatement string) error {
 	return nil
 }
 
+// InjectOnCluster inserts an ON CLUSTER clause into a DDL statement.
+// Returns the DDL unchanged if cluster is empty or the DDL already contains ON CLUSTER.
+// Only operates on CREATE TABLE, ALTER TABLE, and DROP TABLE statements.
+func InjectOnCluster(ddl string, cluster string) string {
+	if cluster == "" {
+		return ddl
+	}
+
+	// Don't double-inject
+	if strings.Contains(strings.ToUpper(ddl), "ON CLUSTER") {
+		return ddl
+	}
+
+	escapedCluster := strings.ReplaceAll(cluster, "'", "\\'")
+	onCluster := fmt.Sprintf("ON CLUSTER '%s'", escapedCluster)
+
+	upper := strings.ToUpper(strings.TrimSpace(ddl))
+
+	switch {
+	case strings.HasPrefix(upper, "CREATE TABLE"):
+		// Insert ON CLUSTER before the opening paren "("
+		// CREATE TABLE [IF NOT EXISTS] db.table ON CLUSTER 'x' (...)
+		parenIdx := strings.Index(ddl, "(")
+		if parenIdx == -1 {
+			return ddl
+		}
+		return strings.TrimRight(ddl[:parenIdx], " ") + " " + onCluster + " " + ddl[parenIdx:]
+
+	case strings.HasPrefix(upper, "ALTER TABLE"):
+		// Insert ON CLUSTER after the table identifier, before the first action keyword
+		// ALTER TABLE db.table ON CLUSTER 'x' ADD/DROP/MODIFY ...
+		actionKeywords := []string{" ADD ", " DROP ", " MODIFY ", " RENAME ", " CLEAR ", " COMMENT ", " DETACH ", " ATTACH "}
+		earliestIdx := -1
+		for _, kw := range actionKeywords {
+			idx := strings.Index(strings.ToUpper(ddl), kw)
+			if idx != -1 && (earliestIdx == -1 || idx < earliestIdx) {
+				earliestIdx = idx
+			}
+		}
+		if earliestIdx == -1 {
+			return ddl
+		}
+		return ddl[:earliestIdx] + " " + onCluster + ddl[earliestIdx:]
+
+	case strings.HasPrefix(upper, "DROP TABLE"):
+		// Append ON CLUSTER at the end
+		// DROP TABLE [IF EXISTS] db.table ON CLUSTER 'x'
+		return strings.TrimRight(ddl, " ;") + " " + onCluster
+
+	default:
+		return ddl
+	}
+}
+
 func (c *Client) ExecuteQuery(ctx context.Context, query string, args ...interface{}) error {
 	c.logger.Debug("Executing query", zap.String("query", query))
 
