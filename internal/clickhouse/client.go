@@ -139,6 +139,7 @@ func (c *Client) connect() error {
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
 		},
+		ConnOpenStrategy: c.connOpenStrategy(),
 	}
 
 	if c.cfg.EnableSSL {
@@ -162,6 +163,14 @@ func (c *Client) connect() error {
 		zap.String("database", c.cfg.Database))
 
 	return nil
+}
+
+// connOpenStrategy maps the config string to the clickhouse-go driver constant.
+func (c *Client) connOpenStrategy() clickhouse.ConnOpenStrategy {
+	if c.cfg.ConnOpenStrategy == "round_robin" {
+		return clickhouse.ConnOpenRoundRobin
+	}
+	return clickhouse.ConnOpenInOrder
 }
 
 func (c *Client) Close() error {
@@ -195,8 +204,7 @@ func (c *Client) CreateTable(ctx context.Context, table *common.TableInfo, engin
 		zap.String("table", table.Name),
 		zap.String("query", query))
 
-	_, err := c.db.ExecContext(ctx, query)
-	if err != nil {
+	if err := c.ExecuteDDL(ctx, query); err != nil {
 		return fmt.Errorf("failed to create table %s.%s: %w", table.Database, table.Name, err)
 	}
 
@@ -211,7 +219,6 @@ func (c *Client) CreateTable(ctx context.Context, table *common.TableInfo, engin
 // The database parameter represents the source MySQL database but operations are performed
 // in the configured ClickHouse database (c.cfg.Database) for consistent data organization.
 func (c *Client) DropTable(ctx context.Context, database, table string) error {
-	// SECURITY: Validate identifiers before using in SQL queries
 	if err := security.ValidateIdentifier(c.cfg.Database, "database name"); err != nil {
 		return fmt.Errorf("invalid database name in config: %w", err)
 	}
@@ -219,14 +226,11 @@ func (c *Client) DropTable(ctx context.Context, database, table string) error {
 		return fmt.Errorf("invalid table name: %w", err)
 	}
 
-	// Note: 'database' parameter is the source MySQL database name, but we always use
-	// the configured ClickHouse database for actual operations
 	escapedDB := security.EscapeIdentifier(c.cfg.Database)
 	escapedTable := security.EscapeIdentifier(table)
 	query := fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", escapedDB, escapedTable)
 
-	_, err := c.db.ExecContext(ctx, query)
-	if err != nil {
+	if err := c.ExecuteDDL(ctx, query); err != nil {
 		return fmt.Errorf("failed to drop table %s.%s: %w", c.cfg.Database, table, err)
 	}
 
@@ -668,6 +672,9 @@ func (c *Client) ExecuteDDL(ctx context.Context, ddlStatement string) error {
 	if strings.TrimSpace(ddlStatement) == "" {
 		return fmt.Errorf("DDL statement cannot be empty")
 	}
+
+	// Inject ON CLUSTER clause if cluster is configured
+	ddlStatement = InjectOnCluster(ddlStatement, c.cfg.Cluster)
 
 	// Log potentially destructive operations
 	upperStmt := strings.ToUpper(strings.TrimSpace(ddlStatement))
