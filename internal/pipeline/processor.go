@@ -1139,6 +1139,22 @@ func (p *Processor) executeDDLWithRetry(ctx context.Context, event *common.Event
 		if err := p.executeDDLTransaction(ctx, event); err != nil {
 			lastErr = err
 
+			// Check if this is a distributed DDL timeout (ON CLUSTER)
+			if p.isDistributedDDLTimeout(err) {
+				if p.cfg.DDLClusterTimeoutAction == "fail" {
+					// Treat as retryable error — continue with existing retry logic
+					p.logger.Warn("Distributed DDL timeout, will retry per ddl_cluster_timeout_action=fail",
+						zap.String("table", tableKey),
+						zap.Error(err))
+				} else {
+					// Default "warn" — log and continue, DDL will eventually apply
+					p.logger.Warn("Distributed DDL timeout on cluster, continuing (ddl_cluster_timeout_action=warn). DDL will eventually apply on lagging replicas.",
+						zap.String("table", tableKey),
+						zap.Error(err))
+					return nil
+				}
+			}
+
 			// Check if this is a retryable error
 			if !p.isRetryableDDLError(err) {
 				p.logger.Error("Non-retryable DDL error",
@@ -1226,6 +1242,17 @@ func (p *Processor) isRetryableDDLError(err error) bool {
 
 	// If we can't classify the error, assume it's retryable
 	return true
+}
+
+// isDistributedDDLTimeout checks if the error is a ClickHouse distributed DDL timeout
+// (error code 159 TIMEOUT_EXCEEDED from ON CLUSTER operations)
+func (p *Processor) isDistributedDDLTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "timeout_exceeded") ||
+		(strings.Contains(errStr, "code: 159") && strings.Contains(errStr, "timeout"))
 }
 
 // attemptDDLRecovery attempts to recover from DDL failures
