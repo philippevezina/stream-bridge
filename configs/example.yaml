@@ -61,6 +61,17 @@ clickhouse:
   max_idle_conns: 5
   max_lifetime: "1h"
 
+  # ClickHouse cluster name for ON CLUSTER DDL support
+  # When set, all DDL statements (CREATE TABLE, ALTER TABLE, DROP TABLE) include ON CLUSTER clause
+  # This ensures schema changes propagate to all nodes in non-Replicated database setups
+  # Leave empty (default) for single-node or Replicated database engine setups
+  # cluster: "my_cluster"
+
+  # Connection open strategy for multiple addresses
+  # in_order: Try addresses in order, use first available (failover only, default)
+  # round_robin: Distribute connections evenly across all addresses
+  conn_open_strategy: "in_order"
+
 pipeline:
   # Batch size for bulk operations
   batch_size: 1000
@@ -86,6 +97,12 @@ pipeline:
   # Maximum time to wait for active batches to complete before executing DDL
   # This ensures proper ordering between DDL and DML events
   ddl_flush_timeout: "1m"
+
+  # Action to take when ON CLUSTER DDL times out (some replicas don't apply within ClickHouse's distributed_ddl_task_timeout)
+  # warn: Log warning and continue processing (default). DDL will eventually apply on lagging replicas.
+  # fail: Treat as error and use existing retry logic (exponential backoff, max_retries attempts).
+  # Only applies when clickhouse.cluster is configured.
+  ddl_cluster_timeout_action: "warn"
 
 monitoring:
   # Enable Prometheus metrics and health endpoints
