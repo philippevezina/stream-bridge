@@ -47,15 +47,17 @@ type MySQLConfig struct {
 }
 
 type ClickHouseConfig struct {
-	Addresses    []string      `mapstructure:"addresses"`
-	Database     string        `mapstructure:"database"`
-	Username     string        `mapstructure:"username"`
-	Password     string        `mapstructure:"password"`
-	EnableSSL    bool          `mapstructure:"enable_ssl"`
-	DialTimeout  time.Duration `mapstructure:"dial_timeout"`
-	MaxOpenConns int           `mapstructure:"max_open_conns"`
-	MaxIdleConns int           `mapstructure:"max_idle_conns"`
-	MaxLifetime  time.Duration `mapstructure:"max_lifetime"`
+	Addresses        []string      `mapstructure:"addresses"`
+	Database         string        `mapstructure:"database"`
+	Username         string        `mapstructure:"username"`
+	Password         string        `mapstructure:"password"`
+	EnableSSL        bool          `mapstructure:"enable_ssl"`
+	DialTimeout      time.Duration `mapstructure:"dial_timeout"`
+	MaxOpenConns     int           `mapstructure:"max_open_conns"`
+	MaxIdleConns     int           `mapstructure:"max_idle_conns"`
+	MaxLifetime      time.Duration `mapstructure:"max_lifetime"`
+	Cluster          string        `mapstructure:"cluster"`
+	ConnOpenStrategy string        `mapstructure:"conn_open_strategy"`
 }
 
 type TableFilterConfig struct {
@@ -76,6 +78,7 @@ type PipelineConfig struct {
 	FlushInterval           time.Duration `mapstructure:"flush_interval"`
 	DDLFlushTimeout         time.Duration `mapstructure:"ddl_flush_timeout"`
 	WorkerChannelTimeout    time.Duration `mapstructure:"worker_channel_timeout"`
+	DDLClusterTimeoutAction string        `mapstructure:"ddl_cluster_timeout_action"`
 }
 
 type MonitoringConfig struct {
@@ -215,6 +218,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("clickhouse.max_open_conns", 10)
 	v.SetDefault("clickhouse.max_idle_conns", 5)
 	v.SetDefault("clickhouse.max_lifetime", "1h")
+	v.SetDefault("clickhouse.conn_open_strategy", "in_order")
 
 	v.SetDefault("pipeline.batch_size", 500)
 	v.SetDefault("pipeline.batch_timeout", "2s")
@@ -226,6 +230,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("pipeline.flush_interval", "2s")
 	v.SetDefault("pipeline.ddl_flush_timeout", "1m")
 	v.SetDefault("pipeline.worker_channel_timeout", "30s")
+	v.SetDefault("pipeline.ddl_cluster_timeout_action", "warn")
 
 	v.SetDefault("monitoring.enabled", true)
 	v.SetDefault("monitoring.port", 8080)
@@ -350,6 +355,13 @@ func validate(cfg *Config) error {
 		return err
 	}
 
+	// ClickHouse connection strategy validation
+	if cfg.ClickHouse.ConnOpenStrategy != "" &&
+		cfg.ClickHouse.ConnOpenStrategy != "in_order" &&
+		cfg.ClickHouse.ConnOpenStrategy != "round_robin" {
+		return fmt.Errorf("clickhouse.conn_open_strategy must be 'in_order' or 'round_robin', got %q", cfg.ClickHouse.ConnOpenStrategy)
+	}
+
 	// Pipeline configuration validation
 	if cfg.Pipeline.BatchSize <= 0 {
 		return fmt.Errorf("pipeline.batch_size must be positive")
@@ -388,6 +400,13 @@ func validate(cfg *Config) error {
 	}
 	if err := validatePositiveDuration(cfg.Pipeline.WorkerChannelTimeout, "pipeline.worker_channel_timeout"); err != nil {
 		return err
+	}
+
+	// Pipeline DDL cluster timeout action validation
+	if cfg.Pipeline.DDLClusterTimeoutAction != "" &&
+		cfg.Pipeline.DDLClusterTimeoutAction != "warn" &&
+		cfg.Pipeline.DDLClusterTimeoutAction != "fail" {
+		return fmt.Errorf("pipeline.ddl_cluster_timeout_action must be 'warn' or 'fail', got %q", cfg.Pipeline.DDLClusterTimeoutAction)
 	}
 
 	// Snapshot configuration validation (only when enabled)

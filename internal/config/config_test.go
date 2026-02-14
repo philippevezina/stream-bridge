@@ -65,6 +65,101 @@ func TestValidateReplicationParams(t *testing.T) {
 	}
 }
 
+func TestValidateConnOpenStrategy(t *testing.T) {
+	tests := []struct {
+		name        string
+		strategy    string
+		expectError bool
+	}{
+		{"empty is valid (defaults to in_order)", "", false},
+		{"in_order is valid", "in_order", false},
+		{"round_robin is valid", "round_robin", false},
+		{"invalid strategy", "random", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := minimalValidConfig()
+			cfg.ClickHouse.ConnOpenStrategy = tt.strategy
+
+			err := validate(cfg)
+			if tt.expectError && err == nil {
+				t.Fatal("expected error but got nil")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateDDLClusterTimeoutAction(t *testing.T) {
+	tests := []struct {
+		name        string
+		action      string
+		expectError bool
+	}{
+		{"empty is valid (defaults to warn)", "", false},
+		{"warn is valid", "warn", false},
+		{"fail is valid", "fail", false},
+		{"invalid action", "ignore", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := minimalValidConfig()
+			cfg.Pipeline.DDLClusterTimeoutAction = tt.action
+
+			err := validate(cfg)
+			if tt.expectError && err == nil {
+				t.Fatal("expected error but got nil")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadWithClusterConfig(t *testing.T) {
+	configContent := `
+mysql:
+  host: "localhost"
+  port: 3306
+  username: "root"
+  password: "pass"
+  database: "test"
+clickhouse:
+  addresses: ["localhost:9000"]
+  username: "default"
+  database: "test"
+  cluster: "my_cluster"
+  conn_open_strategy: "round_robin"
+pipeline:
+  ddl_cluster_timeout_action: "warn"
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.ClickHouse.Cluster != "my_cluster" {
+		t.Errorf("expected cluster 'my_cluster', got %q", cfg.ClickHouse.Cluster)
+	}
+	if cfg.ClickHouse.ConnOpenStrategy != "round_robin" {
+		t.Errorf("expected conn_open_strategy 'round_robin', got %q", cfg.ClickHouse.ConnOpenStrategy)
+	}
+	if cfg.Pipeline.DDLClusterTimeoutAction != "warn" {
+		t.Errorf("expected ddl_cluster_timeout_action 'warn', got %q", cfg.Pipeline.DDLClusterTimeoutAction)
+	}
+}
+
 func TestLoadWithReplicationParams(t *testing.T) {
 	configContent := `
 mysql:
