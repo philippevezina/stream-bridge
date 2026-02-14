@@ -966,7 +966,7 @@ func (p *Processor) executeDDLTransaction(ctx context.Context, event *common.Eve
 	}
 
 	// Translate to ClickHouse DDL
-	defaultEngine := clickhouse.EngineReplacingMergeTree
+	defaultEngine := p.translator.GetDefaultEngine()
 	chDDL, err := p.ddlTranslator.Translate(mysqlDDL, defaultEngine, p.chClient.GetDatabase())
 	if err != nil {
 		return fmt.Errorf("failed to translate DDL: %w", err)

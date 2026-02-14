@@ -675,8 +675,7 @@ func (m *Manager) ensureTableExists(ctx context.Context, database, table string)
 }
 
 func (m *Manager) getDefaultEngine() clickhouse.TableEngine {
-	// Only ReplacingMergeTree variants are supported
-	return clickhouse.EngineReplacingMergeTree
+	return m.translator.GetDefaultEngine()
 }
 
 // HasCompletedSnapshot checks if there's a completed snapshot in the state storage

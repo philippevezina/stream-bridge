@@ -312,6 +312,8 @@ func (a *Application) initialize() error {
 
 	translationOptions := &schema.TranslationOptions{
 		Engine:              clickhouse.TableEngine(a.cfg.Schema.DefaultEngine),
+		ZooPath:             a.cfg.Schema.ZooPath,
+		ReplicaName:         a.cfg.Schema.ReplicaName,
 		PreserveNullability: a.cfg.Schema.PreserveNullable,
 		TimestampPrecision:  a.cfg.Schema.TimestampPrecision,
 		DefaultStringLength: 255,

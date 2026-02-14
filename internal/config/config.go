@@ -110,6 +110,8 @@ type StateClickHouseConfig struct {
 
 type SchemaConfig struct {
 	DefaultEngine       string `mapstructure:"default_engine"`
+	ZooPath             string `mapstructure:"zoo_path"`
+	ReplicaName         string `mapstructure:"replica_name"`
 	PreserveNullable    bool   `mapstructure:"preserve_nullable"`
 	TimestampPrecision  int    `mapstructure:"timestamp_precision"`
 	AllowDestructiveDDL bool   `mapstructure:"allow_destructive_ddl"` // Allow DROP TABLE/DROP COLUMN operations
@@ -450,6 +452,11 @@ func validate(cfg *Config) error {
 	}
 	if err := validateRange(cfg.Logging.MaxAge, 0, 365, "logging.max_age"); err != nil {
 		return err
+	}
+
+	// Schema replication parameter validation
+	if (cfg.Schema.ZooPath != "") != (cfg.Schema.ReplicaName != "") {
+		return fmt.Errorf("schema.zoo_path and schema.replica_name must both be set or both be empty")
 	}
 
 	return nil

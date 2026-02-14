@@ -183,12 +183,12 @@ func (c *Client) GetDatabase() string {
 	return c.cfg.Database
 }
 
-func (c *Client) CreateTable(ctx context.Context, table *common.TableInfo, engine TableEngine) error {
+func (c *Client) CreateTable(ctx context.Context, table *common.TableInfo, engine TableEngine, zooPath, replicaName string) error {
 	if !IsValidEngine(engine) {
 		return fmt.Errorf("unsupported table engine: %s. Only ReplacingMergeTree and ReplicatedReplacingMergeTree are supported", engine)
 	}
 
-	query := c.buildCreateTableQuery(table, engine)
+	query := c.buildCreateTableQuery(table, engine, zooPath, replicaName)
 
 	c.logger.Debug("Creating table",
 		zap.String("database", table.Database),
@@ -438,7 +438,7 @@ func (c *Client) QueryTableInfoFromDatabase(ctx context.Context, database, table
 	return c.queryTableInfoFromDatabase(ctx, database, table)
 }
 
-func (c *Client) buildCreateTableQuery(table *common.TableInfo, engine TableEngine) string {
+func (c *Client) buildCreateTableQuery(table *common.TableInfo, engine TableEngine, zooPath, replicaName string) string {
 	// SECURITY: Validate database and table names
 	if err := security.ValidateIdentifier(c.cfg.Database, "database name"); err != nil {
 		c.logger.Error("Invalid database name in config", zap.Error(err))
@@ -500,7 +500,9 @@ func (c *Client) buildCreateTableQuery(table *common.TableInfo, engine TableEngi
 
 	// For ReplacingMergeTree engines, specify both version and sign columns (consistent with schema translator)
 	engineClause := fmt.Sprintf("ENGINE = %s", engine)
-	if engine == EngineReplacingMergeTree || engine == EngineReplicatedReplacingMergeTree {
+	if engine == EngineReplicatedReplacingMergeTree && zooPath != "" && replicaName != "" {
+		engineClause = fmt.Sprintf("ENGINE = ReplicatedReplacingMergeTree('%s', '%s', _version, _is_deleted)", zooPath, replicaName)
+	} else if engine == EngineReplacingMergeTree || engine == EngineReplicatedReplacingMergeTree {
 		engineClause = fmt.Sprintf("ENGINE = %s(_version, _is_deleted)", engine)
 	}
 

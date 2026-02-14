@@ -16,6 +16,8 @@ import (
 type Translator struct {
 	logger              *zap.Logger
 	defaultEngine       clickhouse.TableEngine
+	zooPath             string
+	replicaName         string
 	preserveNullability bool
 	timestampPrecision  int
 	defaultStringLength int
@@ -24,6 +26,8 @@ type Translator struct {
 
 type TranslationOptions struct {
 	Engine              clickhouse.TableEngine `json:"engine"`
+	ZooPath             string                 `json:"zoo_path"`
+	ReplicaName         string                 `json:"replica_name"`
 	PreserveNullability bool                   `json:"preserve_nullability"`
 	TimestampPrecision  int                    `json:"timestamp_precision"`
 	DefaultStringLength int                    `json:"default_string_length"`
@@ -79,11 +83,18 @@ func NewTranslator(logger *zap.Logger, options *TranslationOptions) *Translator 
 	return &Translator{
 		logger:              logger,
 		defaultEngine:       validateAndGetEngine(options.Engine),
+		zooPath:             options.ZooPath,
+		replicaName:         options.ReplicaName,
 		preserveNullability: options.PreserveNullability,
 		timestampPrecision:  options.TimestampPrecision,
 		defaultStringLength: options.DefaultStringLength,
 		customTypeMappings:  options.CustomTypeMappings,
 	}
+}
+
+// GetDefaultEngine returns the configured default table engine.
+func (t *Translator) GetDefaultEngine() clickhouse.TableEngine {
+	return t.defaultEngine
 }
 
 func (t *Translator) TranslateTable(mysqlSchema *common.TableInfo, targetEngine clickhouse.TableEngine, targetDatabase string) (*ClickHouseSchema, error) {
@@ -493,8 +504,9 @@ func (t *Translator) GenerateCreateTableDDL(schema *ClickHouseSchema) (string, e
 
 	// For ReplacingMergeTree engines, specify both version and sign columns
 	engineClause := fmt.Sprintf("ENGINE = %s", schema.Engine)
-	if schema.Engine == clickhouse.EngineReplacingMergeTree || schema.Engine == clickhouse.EngineReplicatedReplacingMergeTree {
-		// Use _version as version column and _is_deleted as sign column for ReplacingMergeTree
+	if schema.Engine == clickhouse.EngineReplicatedReplacingMergeTree && t.zooPath != "" && t.replicaName != "" {
+		engineClause = fmt.Sprintf("ENGINE = ReplicatedReplacingMergeTree('%s', '%s', _version, _is_deleted)", t.zooPath, t.replicaName)
+	} else if schema.Engine == clickhouse.EngineReplacingMergeTree || schema.Engine == clickhouse.EngineReplicatedReplacingMergeTree {
 		engineClause = fmt.Sprintf("ENGINE = %s(_version, _is_deleted)", schema.Engine)
 	}
 

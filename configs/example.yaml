@@ -146,6 +146,12 @@ schema:
   # Supported engines: ReplacingMergeTree, ReplicatedReplacingMergeTree
   default_engine: "ReplacingMergeTree"
 
+  # Required for ReplicatedReplacingMergeTree without a Replicated database engine.
+  # Uses ClickHouse macros for substitution (e.g. {shard}, {replica}, {database}, {table}, {uuid}).
+  # Both must be set together, or both left empty (for Replicated database engine / ClickHouse Cloud).
+  # zoo_path: "/clickhouse/tables/{shard}/{database}/{table}"
+  # replica_name: "{replica}"
+
   # Preserve nullable columns from MySQL
   preserve_nullable: true
 
