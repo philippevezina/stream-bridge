@@ -15,25 +15,35 @@ import (
 )
 
 type ClickHouseStorage struct {
-	client    *clickhouse.Client
-	logger    *zap.Logger
-	config    Config
-	tableName string
-	cluster   string
+	client      *clickhouse.Client
+	logger      *zap.Logger
+	config      Config
+	tableName   string
+	cluster     string
+	engine      string
+	zooPath     string
+	replicaName string
 }
 
-func NewClickHouseStorage(client *clickhouse.Client, logger *zap.Logger, config Config, cluster string) *ClickHouseStorage {
+func NewClickHouseStorage(client *clickhouse.Client, logger *zap.Logger, config Config, cluster string, engine string, zooPath string, replicaName string) *ClickHouseStorage {
 	tableName := config.ClickHouse.Table
 	if tableName == "" {
 		tableName = "stream_bridge_checkpoints"
 	}
 
+	if engine == "" {
+		engine = string(clickhouse.EngineReplacingMergeTree)
+	}
+
 	return &ClickHouseStorage{
-		client:    client,
-		logger:    logger,
-		config:    config,
-		tableName: tableName,
-		cluster:   cluster,
+		client:      client,
+		logger:      logger,
+		config:      config,
+		tableName:   tableName,
+		cluster:     cluster,
+		engine:      engine,
+		zooPath:     zooPath,
+		replicaName: replicaName,
 	}
 }
 
@@ -252,6 +262,8 @@ func (s *ClickHouseStorage) createCheckpointTable(ctx context.Context) error {
 	escapedDB := security.EscapeIdentifier(database)
 	escapedTable := security.EscapeIdentifier(s.tableName)
 
+	engineClause := s.buildEngineClause("created_at")
+
 	query := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.%s (
 			id String,
@@ -260,10 +272,10 @@ func (s *ClickHouseStorage) createCheckpointTable(ctx context.Context) error {
 			position_gtid String,
 			last_binlog_timestamp DateTime64(3),
 			created_at DateTime64(3)
-		) ENGINE = ReplacingMergeTree(created_at)
+		) %s
 		ORDER BY (id, created_at)
 		TTL toDateTime(created_at) + toIntervalSecond(%d) DELETE
-	`, escapedDB, escapedTable, retentionSeconds)
+	`, escapedDB, escapedTable, engineClause, retentionSeconds)
 
 	query = clickhouse.InjectOnCluster(query, s.cluster)
 
@@ -277,6 +289,16 @@ func (s *ClickHouseStorage) createCheckpointTable(ctx context.Context) error {
 		zap.String("table", s.tableName))
 
 	return nil
+}
+
+// buildEngineClause returns the ENGINE = ... clause for state tables,
+// respecting the configured engine, zoo_path, and replica_name from schema config.
+func (s *ClickHouseStorage) buildEngineClause(versionColumn string) string {
+	engine := clickhouse.TableEngine(s.engine)
+	if engine == clickhouse.EngineReplicatedReplacingMergeTree && s.zooPath != "" && s.replicaName != "" {
+		return fmt.Sprintf("ENGINE = ReplicatedReplacingMergeTree('%s', '%s', %s)", s.zooPath, s.replicaName, versionColumn)
+	}
+	return fmt.Sprintf("ENGINE = %s(%s)", engine, versionColumn)
 }
 
 func (s *ClickHouseStorage) executeQuery(ctx context.Context, query string, args ...any) error {
@@ -498,6 +520,8 @@ func (s *ClickHouseStorage) UpdateSnapshotStatus(ctx context.Context, id string,
 }
 
 func (s *ClickHouseStorage) createSnapshotTable(ctx context.Context) error {
+	engineClause := s.buildEngineClause("updated_at")
+
 	query := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id String,
@@ -511,9 +535,9 @@ func (s *ClickHouseStorage) createSnapshotTable(ctx context.Context) error {
 			error_message String,
 			created_at DateTime,
 			updated_at DateTime
-		) ENGINE = ReplacingMergeTree(updated_at)
+		) %s
 		ORDER BY (id)
-	`, s.getFullSnapshotTableName())
+	`, s.getFullSnapshotTableName(), engineClause)
 
 	query = clickhouse.InjectOnCluster(query, s.cluster)
 
