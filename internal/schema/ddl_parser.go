@@ -65,7 +65,7 @@ const (
 )
 
 var (
-	createTableRegex = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s*\((.+)\)(?:\s*ENGINE\s*=\s*(\w+))?`)
+	createTableRegex = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s*\(([\s\S]+)\)(?:\s*ENGINE\s*=\s*(\w+))?`)
 	alterTableRegex  = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s+([\s\S]+)`)
 	dropTableRegex   = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `(?:\s*/\*.*?\*/\s*)?$`)
 
