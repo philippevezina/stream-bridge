@@ -13,14 +13,22 @@ type DDLParser struct {
 }
 
 type DDLStatement struct {
-	Type       DDLType           `json:"type"`
-	Database   string            `json:"database"`
-	Table      string            `json:"table"`
-	Columns    []DDLColumn       `json:"columns,omitempty"`
-	Operations []DDLOperation    `json:"operations,omitempty"`
-	Engine     string            `json:"engine,omitempty"`
-	Options    map[string]string `json:"options,omitempty"`
-	RawSQL     string            `json:"raw_sql"`
+	Type        DDLType           `json:"type"`
+	Database    string            `json:"database"`
+	Table       string            `json:"table"`
+	Columns     []DDLColumn       `json:"columns,omitempty"`
+	Operations  []DDLOperation    `json:"operations,omitempty"`
+	RenamePairs []RenamePair      `json:"rename_pairs,omitempty"`
+	Engine      string            `json:"engine,omitempty"`
+	Options     map[string]string `json:"options,omitempty"`
+	RawSQL      string            `json:"raw_sql"`
+}
+
+type RenamePair struct {
+	FromDatabase string `json:"from_database"`
+	FromTable    string `json:"from_table"`
+	ToDatabase   string `json:"to_database"`
+	ToTable      string `json:"to_table"`
 }
 
 type DDLType string
@@ -29,6 +37,7 @@ const (
 	DDLTypeCreateTable DDLType = "CREATE_TABLE"
 	DDLTypeAlterTable  DDLType = "ALTER_TABLE"
 	DDLTypeDropTable   DDLType = "DROP_TABLE"
+	DDLTypeRenameTable DDLType = "RENAME_TABLE"
 	DDLTypeCreateIndex DDLType = "CREATE_INDEX"
 	DDLTypeDropIndex   DDLType = "DROP_INDEX"
 	DDLTypeUnknown     DDLType = "UNKNOWN"
@@ -68,6 +77,8 @@ var (
 	createTableRegex = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s*\(([\s\S]+)\)(?:\s*ENGINE\s*=\s*(\w+))?`)
 	alterTableRegex  = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s+([\s\S]+)`)
 	dropTableRegex   = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `(?:\s*/\*.*?\*/\s*)?$`)
+	renameTableRegex = regexp.MustCompile(`(?i)^\s*RENAME\s+TABLE\s+([\s\S]+)`)
+	renamePairRegex  = regexp.MustCompile(`(?i)(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)" + `\s+TO\s+(?:(?:(\w+)|` + "`([^`]+)`)" + `\.)?(?:(\w+)|` + "`([^`]+)`)")
 
 	addColumnRegex    = regexp.MustCompile(`(?i)ADD\s+(?:COLUMN\s+)?(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+([\s\S]*?)(?:\s+AFTER\s+(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `))?(?:\s+FIRST)?\s*$`)
 	dropColumnRegex   = regexp.MustCompile(`(?i)DROP\s+(?:COLUMN\s+)?(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)`)
@@ -104,6 +115,10 @@ func (p *DDLParser) Parse(ddlSQL string) (*DDLStatement, error) {
 
 	if matches := dropTableRegex.FindStringSubmatch(ddlSQL); matches != nil {
 		return p.parseDropTable(stmt, matches)
+	}
+
+	if matches := renameTableRegex.FindStringSubmatch(ddlSQL); matches != nil {
+		return p.parseRenameTable(stmt, matches[1])
 	}
 
 	p.logger.Warn("Unknown DDL statement type", zap.String("sql", ddlSQL))
@@ -201,6 +216,52 @@ func (p *DDLParser) parseDropTable(stmt *DDLStatement, matches []string) (*DDLSt
 	p.logger.Debug("Parsed DROP TABLE statement",
 		zap.String("database", stmt.Database),
 		zap.String("table", stmt.Table))
+
+	return stmt, nil
+}
+
+func (p *DDLParser) parseRenameTable(stmt *DDLStatement, pairsClause string) (*DDLStatement, error) {
+	stmt.Type = DDLTypeRenameTable
+
+	pairMatches := renamePairRegex.FindAllStringSubmatch(pairsClause, -1)
+	if len(pairMatches) == 0 {
+		return nil, fmt.Errorf("no valid rename pairs found in RENAME TABLE statement")
+	}
+
+	for _, match := range pairMatches {
+		fromDB := match[1]
+		if fromDB == "" {
+			fromDB = match[2]
+		}
+		fromTable := match[3]
+		if fromTable == "" {
+			fromTable = match[4]
+		}
+		toDB := match[5]
+		if toDB == "" {
+			toDB = match[6]
+		}
+		toTable := match[7]
+		if toTable == "" {
+			toTable = match[8]
+		}
+
+		stmt.RenamePairs = append(stmt.RenamePairs, RenamePair{
+			FromDatabase: fromDB,
+			FromTable:    fromTable,
+			ToDatabase:   toDB,
+			ToTable:      toTable,
+		})
+	}
+
+	// Set Database/Table from first pair for compatibility with existing DDL flow
+	if len(stmt.RenamePairs) > 0 {
+		stmt.Database = stmt.RenamePairs[0].FromDatabase
+		stmt.Table = stmt.RenamePairs[0].FromTable
+	}
+
+	p.logger.Debug("Parsed RENAME TABLE statement",
+		zap.Int("pairs", len(stmt.RenamePairs)))
 
 	return stmt, nil
 }
@@ -597,6 +658,7 @@ func (p *DDLParser) IsSupported(ddlSQL string) bool {
 		"CREATE TABLE",
 		"ALTER TABLE",
 		"DROP TABLE",
+		"RENAME TABLE",
 	}
 
 	for _, prefix := range supportedPrefixes {

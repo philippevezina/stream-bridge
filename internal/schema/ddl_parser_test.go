@@ -164,6 +164,33 @@ func TestIsConstraintDefinition(t *testing.T) {
 	}
 }
 
+func TestParseRenameTable_SinglePair(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	sql := "RENAME TABLE `mydb`.`old_table` TO `mydb`.`new_table`"
+
+	stmt, err := parser.Parse(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stmt.Type != DDLTypeRenameTable {
+		t.Fatalf("expected RENAME_TABLE, got %s", stmt.Type)
+	}
+
+	if len(stmt.RenamePairs) != 1 {
+		t.Fatalf("expected 1 rename pair, got %d", len(stmt.RenamePairs))
+	}
+
+	pair := stmt.RenamePairs[0]
+	if pair.FromDatabase != "mydb" || pair.FromTable != "old_table" {
+		t.Errorf("expected from mydb.old_table, got %s.%s", pair.FromDatabase, pair.FromTable)
+	}
+	if pair.ToDatabase != "mydb" || pair.ToTable != "new_table" {
+		t.Errorf("expected to mydb.new_table, got %s.%s", pair.ToDatabase, pair.ToTable)
+	}
+}
+
 func TestIsIndexOperation(t *testing.T) {
 	tests := []struct {
 		input    string
