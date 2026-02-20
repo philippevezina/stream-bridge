@@ -191,6 +191,116 @@ func TestParseRenameTable_SinglePair(t *testing.T) {
 	}
 }
 
+func TestParseRenameTable_MultiPair(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	// pt-online-schema-change pattern
+	sql := "RENAME TABLE `mydb`.`integration_invoice_details` TO `mydb`.`_integration_invoice_details_old`, " +
+		"`mydb`.`_integration_invoice_details_new` TO `mydb`.`integration_invoice_details`"
+
+	stmt, err := parser.Parse(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stmt.Type != DDLTypeRenameTable {
+		t.Fatalf("expected RENAME_TABLE, got %s", stmt.Type)
+	}
+
+	if len(stmt.RenamePairs) != 2 {
+		t.Fatalf("expected 2 rename pairs, got %d", len(stmt.RenamePairs))
+	}
+
+	// First pair: original -> _old
+	if stmt.RenamePairs[0].FromTable != "integration_invoice_details" {
+		t.Errorf("pair 0: expected from table 'integration_invoice_details', got %s", stmt.RenamePairs[0].FromTable)
+	}
+	if stmt.RenamePairs[0].ToTable != "_integration_invoice_details_old" {
+		t.Errorf("pair 0: expected to table '_integration_invoice_details_old', got %s", stmt.RenamePairs[0].ToTable)
+	}
+
+	// Second pair: _new -> original
+	if stmt.RenamePairs[1].FromTable != "_integration_invoice_details_new" {
+		t.Errorf("pair 1: expected from table '_integration_invoice_details_new', got %s", stmt.RenamePairs[1].FromTable)
+	}
+	if stmt.RenamePairs[1].ToTable != "integration_invoice_details" {
+		t.Errorf("pair 1: expected to table 'integration_invoice_details', got %s", stmt.RenamePairs[1].ToTable)
+	}
+
+	// Database/Table set from first pair
+	if stmt.Database != "mydb" {
+		t.Errorf("expected database 'mydb', got %s", stmt.Database)
+	}
+	if stmt.Table != "integration_invoice_details" {
+		t.Errorf("expected table 'integration_invoice_details', got %s", stmt.Table)
+	}
+}
+
+func TestParseRenameTable_NoDatabaseQualifier(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	sql := "RENAME TABLE `old_table` TO `new_table`"
+
+	stmt, err := parser.Parse(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stmt.Type != DDLTypeRenameTable {
+		t.Fatalf("expected RENAME_TABLE, got %s", stmt.Type)
+	}
+
+	if len(stmt.RenamePairs) != 1 {
+		t.Fatalf("expected 1 rename pair, got %d", len(stmt.RenamePairs))
+	}
+
+	pair := stmt.RenamePairs[0]
+	if pair.FromDatabase != "" {
+		t.Errorf("expected empty from database, got %s", pair.FromDatabase)
+	}
+	if pair.FromTable != "old_table" {
+		t.Errorf("expected from table 'old_table', got %s", pair.FromTable)
+	}
+	if pair.ToTable != "new_table" {
+		t.Errorf("expected to table 'new_table', got %s", pair.ToTable)
+	}
+}
+
+func TestParseRenameTable_UnquotedIdentifiers(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	sql := "RENAME TABLE mydb.old_table TO mydb.new_table"
+
+	stmt, err := parser.Parse(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stmt.Type != DDLTypeRenameTable {
+		t.Fatalf("expected RENAME_TABLE, got %s", stmt.Type)
+	}
+
+	pair := stmt.RenamePairs[0]
+	if pair.FromDatabase != "mydb" || pair.FromTable != "old_table" {
+		t.Errorf("expected from mydb.old_table, got %s.%s", pair.FromDatabase, pair.FromTable)
+	}
+	if pair.ToDatabase != "mydb" || pair.ToTable != "new_table" {
+		t.Errorf("expected to mydb.new_table, got %s.%s", pair.ToDatabase, pair.ToTable)
+	}
+}
+
+func TestIsSupported_RenameTable(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	if !parser.IsSupported("RENAME TABLE `db`.`t1` TO `db`.`t2`") {
+		t.Error("RENAME TABLE should be supported")
+	}
+
+	if !parser.IsSupported("rename table t1 to t2") {
+		t.Error("lowercase RENAME TABLE should be supported")
+	}
+}
+
 func TestIsIndexOperation(t *testing.T) {
 	tests := []struct {
 		input    string
