@@ -223,9 +223,14 @@ func (p *DDLParser) parseColumnDefinitions(columnDefs string) ([]DDLColumn, erro
 				if colDef != "" {
 					column, err := p.parseColumnDefinition(colDef)
 					if err != nil {
-						p.logger.Warn("Failed to parse column definition",
-							zap.String("column_def", colDef),
-							zap.Error(err))
+						if isConstraintDefinition(colDef) {
+							p.logger.Debug("Skipping constraint/index definition",
+								zap.String("column_def", colDef))
+						} else {
+							p.logger.Warn("Failed to parse column definition",
+								zap.String("column_def", colDef),
+								zap.Error(err))
+						}
 					} else {
 						columns = append(columns, *column)
 					}
@@ -239,9 +244,14 @@ func (p *DDLParser) parseColumnDefinitions(columnDefs string) ([]DDLColumn, erro
 	if colDef != "" {
 		column, err := p.parseColumnDefinition(colDef)
 		if err != nil {
-			p.logger.Warn("Failed to parse final column definition",
-				zap.String("column_def", colDef),
-				zap.Error(err))
+			if isConstraintDefinition(colDef) {
+				p.logger.Debug("Skipping constraint/index definition",
+					zap.String("column_def", colDef))
+			} else {
+				p.logger.Warn("Failed to parse final column definition",
+					zap.String("column_def", colDef),
+					zap.Error(err))
+			}
 		} else {
 			columns = append(columns, *column)
 		}
@@ -446,6 +456,12 @@ func (p *DDLParser) parseAlterOperation(operation string) (*DDLOperation, error)
 	operation = strings.TrimSpace(operation)
 	upperOp := strings.ToUpper(operation)
 
+	// Skip index/key operations - not relevant to ClickHouse
+	if isIndexOperation(upperOp) {
+		p.logger.Debug("Skipping index/key operation", zap.String("operation", operation))
+		return nil, nil
+	}
+
 	if matches := addColumnRegex.FindStringSubmatch(operation); matches != nil {
 		// Extract column name from either unquoted (group 1) or backtick-quoted (group 2)
 		columnName := matches[1]
@@ -534,6 +550,44 @@ func (p *DDLParser) parseAlterOperation(operation string) (*DDLOperation, error)
 
 	p.logger.Debug("Unhandled alter operation", zap.String("operation", operation))
 	return nil, nil
+}
+
+// isConstraintDefinition checks if a column definition string is actually
+// a constraint/index definition (PRIMARY KEY, KEY, INDEX, UNIQUE, etc.)
+// which should be silently skipped during CREATE TABLE parsing.
+func isConstraintDefinition(colDef string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(colDef))
+	return strings.HasPrefix(upper, "PRIMARY KEY") ||
+		strings.HasPrefix(upper, "KEY") ||
+		strings.HasPrefix(upper, "INDEX") ||
+		strings.HasPrefix(upper, "UNIQUE") ||
+		strings.HasPrefix(upper, "FOREIGN KEY") ||
+		strings.HasPrefix(upper, "CONSTRAINT")
+}
+
+// isIndexOperation checks if an ALTER TABLE operation is an index/key operation
+// (ADD INDEX, ADD KEY, ADD UNIQUE, ADD PRIMARY KEY, DROP INDEX, DROP KEY, etc.)
+// which should be silently skipped since ClickHouse doesn't use MySQL indexes.
+func isIndexOperation(upperOp string) bool {
+	prefixes := []string{
+		"ADD INDEX",
+		"ADD KEY",
+		"ADD UNIQUE KEY",
+		"ADD UNIQUE INDEX",
+		"ADD PRIMARY KEY",
+		"ADD FULLTEXT",
+		"ADD SPATIAL",
+		"DROP INDEX",
+		"DROP KEY",
+		"DROP PRIMARY KEY",
+		"DROP FOREIGN KEY",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(upperOp, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *DDLParser) IsSupported(ddlSQL string) bool {
