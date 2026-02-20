@@ -301,6 +301,37 @@ func TestIsSupported_RenameTable(t *testing.T) {
 	}
 }
 
+func TestParseRenameTable_ProductionCase(t *testing.T) {
+	parser := NewDDLParser(zap.NewNop())
+
+	// pt-online-schema-change style multi-table rename with long database-qualified names
+	sql := "RENAME TABLE `my_production`.`customer_orders` TO `my_production`.`_customer_orders_old`, " +
+		"`my_production`.`_customer_orders_new` TO `my_production`.`customer_orders`"
+
+	stmt, err := parser.Parse(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if stmt.Type != DDLTypeRenameTable {
+		t.Fatalf("expected RENAME_TABLE, got %s", stmt.Type)
+	}
+
+	if len(stmt.RenamePairs) != 2 {
+		t.Fatalf("expected 2 rename pairs, got %d", len(stmt.RenamePairs))
+	}
+
+	// Verify IsSupported
+	if !parser.IsSupported(sql) {
+		t.Error("production RENAME TABLE SQL should be supported")
+	}
+
+	// Verify IsRenameTable
+	if !parser.IsRenameTable(sql) {
+		t.Error("production RENAME TABLE SQL should be detected as rename")
+	}
+}
+
 func TestIsIndexOperation(t *testing.T) {
 	tests := []struct {
 		input    string
