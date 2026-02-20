@@ -1666,13 +1666,39 @@ func (tw *tableWorker) waitForTableBatches(tableKey string) {
 	}
 }
 
+// waitForAllBatches waits for all active batches across all tables to complete.
+// Used as a safe fallback when we can't determine specific tables to flush.
+func (tw *tableWorker) waitForAllBatches() {
+	timeout := tw.processor.cfg.DDLFlushTimeout
+	if timeout <= 0 {
+		timeout = 1 * time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(tw.ctx, timeout)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tw.processor.batcher.activeBatches.Wait()
+	}()
+
+	select {
+	case <-done:
+		tw.processor.logger.Debug("All active batches completed before DDL")
+	case <-ctx.Done():
+		tw.processor.logger.Warn("Timeout waiting for all active batches before DDL",
+			zap.Duration("timeout", timeout))
+	}
+}
+
 // flushRenameTableBatches flushes batches for all tables affected by a RENAME TABLE statement
 func (tw *tableWorker) flushRenameTableBatches(event *common.Event) {
 	parsed, err := tw.processor.ddlParser.Parse(event.SQL)
 	if err != nil {
-		tw.processor.logger.Warn("Failed to parse RENAME TABLE for flush, flushing event database",
+		tw.processor.logger.Warn("Failed to parse RENAME TABLE for flush, waiting for all active batches",
 			zap.Error(err))
-		tw.waitForTableBatches(fmt.Sprintf("%s.", event.Database))
+		tw.waitForAllBatches()
 		return
 	}
 
