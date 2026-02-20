@@ -47,6 +47,8 @@ func (u *DDLCacheUpdater) UpdateCacheAfterDDL(mysqlDDL *DDLStatement, targetData
 		return u.handleAlterTable(mysqlDDL, targetDatabase, targetTable)
 	case DDLTypeDropTable:
 		return u.handleDropTable(mysqlDDL, targetDatabase, targetTable)
+	case DDLTypeRenameTable:
+		return u.handleRenameTable(mysqlDDL, targetDatabase)
 	default:
 		u.logger.Debug("Ignoring unsupported DDL type for cache update",
 			zap.String("type", string(mysqlDDL.Type)),
@@ -150,6 +152,48 @@ func (u *DDLCacheUpdater) handleDropTable(mysqlDDL *DDLStatement, targetDatabase
 	u.logger.Info("Removed table schema from cache",
 		zap.String("database", targetDatabase),
 		zap.String("table", targetTable))
+
+	return nil
+}
+
+// handleRenameTable moves table schemas in cache to their new names
+func (u *DDLCacheUpdater) handleRenameTable(mysqlDDL *DDLStatement, targetDatabase string) error {
+	// Collect all schemas first before modifying cache to handle swap patterns
+	// (where table A renames to B and table B renames to A)
+	type cachedEntry struct {
+		schema *common.TableInfo
+		toName string
+	}
+	var entries []cachedEntry
+
+	for _, pair := range mysqlDDL.RenamePairs {
+		existing, err := u.cacheManager.GetTableSchema(targetDatabase, pair.FromTable)
+		if err != nil {
+			u.logger.Debug("Source table not in cache during RENAME, skipping pair",
+				zap.String("database", targetDatabase),
+				zap.String("from_table", pair.FromTable),
+				zap.String("to_table", pair.ToTable))
+			continue
+		}
+
+		entries = append(entries, cachedEntry{schema: existing, toName: pair.ToTable})
+	}
+
+	// Remove all source tables
+	for _, pair := range mysqlDDL.RenamePairs {
+		u.cacheManager.RemoveTableSchema(targetDatabase, pair.FromTable)
+	}
+
+	// Re-insert under new names
+	for _, entry := range entries {
+		entry.schema.Database = targetDatabase
+		entry.schema.Name = entry.toName
+		u.cacheManager.SetTableSchema(entry.schema)
+	}
+
+	u.logger.Info("Renamed table schemas in cache",
+		zap.String("database", targetDatabase),
+		zap.Int("pairs", len(mysqlDDL.RenamePairs)))
 
 	return nil
 }

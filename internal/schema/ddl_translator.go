@@ -61,6 +61,8 @@ func (dt *DDLTranslator) Translate(mysqlDDL *DDLStatement, targetEngine clickhou
 		return dt.translateAlterTable(mysqlDDL, targetEngine, chDDL)
 	case DDLTypeDropTable:
 		return dt.translateDropTable(mysqlDDL, chDDL)
+	case DDLTypeRenameTable:
+		return dt.translateRenameTable(mysqlDDL, chDDL)
 	default:
 		return nil, fmt.Errorf("unsupported DDL type: %s", mysqlDDL.Type)
 	}
@@ -273,6 +275,47 @@ func (dt *DDLTranslator) translateDropTable(mysqlDDL *DDLStatement, chDDL *Click
 	dt.logger.Debug("Translated DROP TABLE DDL",
 		zap.String("database", chDDL.Database),
 		zap.String("table", mysqlDDL.Table))
+
+	return chDDL, nil
+}
+
+func (dt *DDLTranslator) translateRenameTable(mysqlDDL *DDLStatement, chDDL *ClickHouseDDL) (*ClickHouseDDL, error) {
+	if len(mysqlDDL.RenamePairs) == 0 {
+		return nil, fmt.Errorf("RENAME TABLE statement has no rename pairs")
+	}
+
+	var pairs []string
+	for _, pair := range mysqlDDL.RenamePairs {
+		fromTable := pair.FromTable
+		toTable := pair.ToTable
+
+		// SECURITY: Validate identifiers
+		if err := security.ValidateIdentifier(fromTable, "source table name"); err != nil {
+			return nil, fmt.Errorf("invalid source table name: %w", err)
+		}
+		if err := security.ValidateIdentifier(toTable, "destination table name"); err != nil {
+			return nil, fmt.Errorf("invalid destination table name: %w", err)
+		}
+		if err := security.ValidateIdentifier(chDDL.Database, "database name"); err != nil {
+			return nil, fmt.Errorf("invalid database name: %w", err)
+		}
+
+		escapedDB := security.EscapeIdentifier(chDDL.Database)
+		escapedFrom := security.EscapeIdentifier(fromTable)
+		escapedTo := security.EscapeIdentifier(toTable)
+
+		pairs = append(pairs, fmt.Sprintf("%s.%s TO %s.%s", escapedDB, escapedFrom, escapedDB, escapedTo))
+	}
+
+	renameStatement := fmt.Sprintf("RENAME TABLE %s", strings.Join(pairs, ", "))
+
+	chDDL.Statements = []string{renameStatement}
+	chDDL.IsDestructive = false
+	chDDL.Metadata["rename_pairs"] = fmt.Sprintf("%d", len(mysqlDDL.RenamePairs))
+
+	dt.logger.Debug("Translated RENAME TABLE DDL",
+		zap.String("database", chDDL.Database),
+		zap.Int("pairs", len(mysqlDDL.RenamePairs)))
 
 	return chDDL, nil
 }
