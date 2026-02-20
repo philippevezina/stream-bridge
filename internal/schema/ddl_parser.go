@@ -651,6 +651,11 @@ func isIndexOperation(upperOp string) bool {
 	return false
 }
 
+// IsRenameTable checks if a DDL statement is a RENAME TABLE statement
+func (p *DDLParser) IsRenameTable(ddlSQL string) bool {
+	return strings.HasPrefix(strings.TrimSpace(strings.ToUpper(ddlSQL)), "RENAME TABLE")
+}
+
 func (p *DDLParser) IsSupported(ddlSQL string) bool {
 	ddlSQL = strings.TrimSpace(strings.ToUpper(ddlSQL))
 

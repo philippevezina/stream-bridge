@@ -1603,8 +1603,13 @@ func (tw *tableWorker) processDDLEvent(event *common.Event) {
 		zap.String("table", tableKey),
 		zap.String("sql", event.SQL))
 
-	// Wait for any pending batches to complete for this table
-	tw.waitForTableBatches(tableKey)
+	// For RENAME TABLE, flush all affected tables
+	if tw.processor.ddlParser.IsRenameTable(event.SQL) {
+		tw.flushRenameTableBatches(event)
+	} else {
+		// Wait for any pending batches to complete for this table
+		tw.waitForTableBatches(tableKey)
+	}
 
 	// Execute DDL synchronously
 	if err := tw.processor.executeDDLWithRetry(tw.ctx, event, tableKey); err != nil {
@@ -1658,6 +1663,50 @@ func (tw *tableWorker) waitForTableBatches(tableKey string) {
 		tw.processor.logger.Warn("Timeout waiting for table batches before DDL",
 			zap.String("table", tableKey),
 			zap.Duration("timeout", timeout))
+	}
+}
+
+// flushRenameTableBatches flushes batches for all tables affected by a RENAME TABLE statement
+func (tw *tableWorker) flushRenameTableBatches(event *common.Event) {
+	parsed, err := tw.processor.ddlParser.Parse(event.SQL)
+	if err != nil {
+		tw.processor.logger.Warn("Failed to parse RENAME TABLE for flush, flushing event database",
+			zap.Error(err))
+		tw.waitForTableBatches(fmt.Sprintf("%s.", event.Database))
+		return
+	}
+
+	// Collect unique table keys to flush
+	seen := make(map[string]bool)
+	var tableKeys []string
+	for _, pair := range parsed.RenamePairs {
+		fromDB := pair.FromDatabase
+		if fromDB == "" {
+			fromDB = event.Database
+		}
+		toDB := pair.ToDatabase
+		if toDB == "" {
+			toDB = event.Database
+		}
+
+		fromKey := fmt.Sprintf("%s.%s", fromDB, pair.FromTable)
+		toKey := fmt.Sprintf("%s.%s", toDB, pair.ToTable)
+
+		if !seen[fromKey] {
+			seen[fromKey] = true
+			tableKeys = append(tableKeys, fromKey)
+		}
+		if !seen[toKey] {
+			seen[toKey] = true
+			tableKeys = append(tableKeys, toKey)
+		}
+	}
+
+	tw.processor.logger.Info("Flushing batches for RENAME TABLE",
+		zap.Strings("tables", tableKeys))
+
+	for _, key := range tableKeys {
+		tw.waitForTableBatches(key)
 	}
 }
 
