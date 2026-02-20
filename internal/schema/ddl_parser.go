@@ -68,6 +68,7 @@ const (
 	DDLActionDropColumn   DDLAction = "DROP_COLUMN"
 	DDLActionModifyColumn DDLAction = "MODIFY_COLUMN"
 	DDLActionChangeColumn DDLAction = "CHANGE_COLUMN"
+	DDLActionRenameColumn DDLAction = "RENAME_COLUMN"
 	DDLActionAddIndex     DDLAction = "ADD_INDEX"
 	DDLActionDropIndex    DDLAction = "DROP_INDEX"
 	DDLActionRename       DDLAction = "RENAME"
@@ -84,6 +85,7 @@ var (
 	dropColumnRegex   = regexp.MustCompile(`(?i)DROP\s+(?:COLUMN\s+)?(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)`)
 	modifyColumnRegex = regexp.MustCompile(`(?i)MODIFY\s+(?:COLUMN\s+)?(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+([\s\S]*?)\s*$`)
 	changeColumnRegex = regexp.MustCompile(`(?i)CHANGE\s+(?:COLUMN\s+)?(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+([\s\S]*?)\s*$`)
+	renameColumnRegex = regexp.MustCompile(`(?i)RENAME\s+COLUMN\s+(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+TO\s+(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s*$`)
 
 	columnDefRegex = regexp.MustCompile(`(?:(\w+)|` + "`" + `([^` + "`" + `]+)` + "`" + `)\s+([\s\S]+?)(?:\s+DEFAULT\s+([^,\)]+?))?(?:\s+COMMENT\s+'([^']*)')?$`)
 )
@@ -600,6 +602,24 @@ func (p *DDLParser) parseAlterOperation(operation string) (*DDLOperation, error)
 			Action:  DDLActionChangeColumn,
 			OldName: oldColumnName,
 			Column:  column,
+		}, nil
+	}
+
+	if matches := renameColumnRegex.FindStringSubmatch(operation); matches != nil {
+		oldColumnName := matches[1]
+		if oldColumnName == "" {
+			oldColumnName = matches[2]
+		}
+
+		newColumnName := matches[3]
+		if newColumnName == "" {
+			newColumnName = matches[4]
+		}
+
+		return &DDLOperation{
+			Action:  DDLActionRenameColumn,
+			OldName: oldColumnName,
+			NewName: newColumnName,
 		}, nil
 	}
 

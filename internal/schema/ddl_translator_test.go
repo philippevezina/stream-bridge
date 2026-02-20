@@ -184,3 +184,89 @@ func TestDDLTranslator_RenameTable_EmptyPairs(t *testing.T) {
 		t.Fatal("expected error for empty rename pairs")
 	}
 }
+
+func TestDDLTranslator_RenameColumn(t *testing.T) {
+	logger := zap.NewNop()
+	translator := NewTranslator(logger, &TranslationOptions{
+		Engine:              clickhouse.EngineReplacingMergeTree,
+		PreserveNullability: true,
+		TimestampPrecision:  3,
+		DefaultStringLength: 255,
+		CustomTypeMappings:  make(map[string]string),
+	})
+	ddlTranslator := NewDDLTranslator(translator, logger)
+
+	mysqlDDL := &DDLStatement{
+		Type:     DDLTypeAlterTable,
+		Database: "mydb",
+		Table:    "test_table",
+		Operations: []DDLOperation{
+			{
+				Action:  DDLActionRenameColumn,
+				OldName: "old_col",
+				NewName: "new_col",
+			},
+		},
+	}
+
+	result, err := ddlTranslator.Translate(mysqlDDL, clickhouse.EngineReplacingMergeTree, "ch_db")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(result.Statements))
+	}
+
+	expected := "ALTER TABLE `ch_db`.`test_table` RENAME COLUMN `old_col` TO `new_col`"
+	if result.Statements[0] != expected {
+		t.Errorf("expected statement:\n%s\ngot:\n%s", expected, result.Statements[0])
+	}
+
+	if result.IsDestructive {
+		t.Error("RENAME COLUMN should not be destructive")
+	}
+}
+
+func TestDDLTranslator_RenameColumn_MissingNames(t *testing.T) {
+	logger := zap.NewNop()
+	translator := NewTranslator(logger, &TranslationOptions{
+		Engine:              clickhouse.EngineReplacingMergeTree,
+		PreserveNullability: true,
+		TimestampPrecision:  3,
+		DefaultStringLength: 255,
+		CustomTypeMappings:  make(map[string]string),
+	})
+	ddlTranslator := NewDDLTranslator(translator, logger)
+
+	tests := []struct {
+		name    string
+		oldName string
+		newName string
+	}{
+		{name: "missing old name", oldName: "", newName: "new_col"},
+		{name: "missing new name", oldName: "old_col", newName: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mysqlDDL := &DDLStatement{
+				Type:     DDLTypeAlterTable,
+				Database: "mydb",
+				Table:    "test_table",
+				Operations: []DDLOperation{
+					{
+						Action:  DDLActionRenameColumn,
+						OldName: tt.oldName,
+						NewName: tt.newName,
+					},
+				},
+			}
+
+			_, err := ddlTranslator.Translate(mysqlDDL, clickhouse.EngineReplacingMergeTree, "ch_db")
+			if err == nil {
+				t.Fatal("expected error for missing column name")
+			}
+		})
+	}
+}

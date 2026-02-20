@@ -230,6 +230,15 @@ func (dt *DDLTranslator) translateAlterTable(mysqlDDL *DDLStatement, _ clickhous
 				warnings = append(warnings, warning)
 			}
 
+		case DDLActionRenameColumn:
+			stmt, err := dt.translateRenameColumn(chDDL.Database, mysqlDDL.Table, operation)
+			if err != nil {
+				return nil, fmt.Errorf("failed to translate RENAME COLUMN: %w", err)
+			}
+			if stmt != "" {
+				statements = append(statements, stmt)
+			}
+
 		default:
 			warning := fmt.Sprintf("Unsupported ALTER operation: %s", operation.Action)
 			warnings = append(warnings, warning)
@@ -502,6 +511,39 @@ func (dt *DDLTranslator) translateChangeColumn(database, table string, operation
 	return statements, warning, nil
 }
 
+func (dt *DDLTranslator) translateRenameColumn(database, table string, operation DDLOperation) (string, error) {
+	// SECURITY: Validate identifiers
+	if err := security.ValidateIdentifier(database, "database name"); err != nil {
+		return "", fmt.Errorf("invalid database name: %w", err)
+	}
+	if err := security.ValidateIdentifier(table, "table name"); err != nil {
+		return "", fmt.Errorf("invalid table name: %w", err)
+	}
+
+	if operation.OldName == "" {
+		return "", fmt.Errorf("RENAME COLUMN operation missing old column name")
+	}
+	if operation.NewName == "" {
+		return "", fmt.Errorf("RENAME COLUMN operation missing new column name")
+	}
+
+	// SECURITY: Validate column names
+	if err := security.ValidateIdentifier(operation.OldName, "old column name"); err != nil {
+		return "", fmt.Errorf("invalid old column name: %w", err)
+	}
+	if err := security.ValidateIdentifier(operation.NewName, "new column name"); err != nil {
+		return "", fmt.Errorf("invalid new column name: %w", err)
+	}
+
+	escapedDB := security.EscapeIdentifier(database)
+	escapedTable := security.EscapeIdentifier(table)
+	escapedOldCol := security.EscapeIdentifier(operation.OldName)
+	escapedNewCol := security.EscapeIdentifier(operation.NewName)
+
+	return fmt.Sprintf("ALTER TABLE %s.%s RENAME COLUMN %s TO %s",
+		escapedDB, escapedTable, escapedOldCol, escapedNewCol), nil
+}
+
 func (dt *DDLTranslator) translateDDLColumn(mysqlCol DDLColumn) (*ClickHouseColumn, error) {
 	clickhouseType, err := dt.translator.mapMySQLTypeToClickHouse(mysqlCol.Type)
 	if err != nil {
@@ -547,6 +589,7 @@ func (dt *DDLTranslator) GetSupportedOperations() []DDLAction {
 		DDLActionDropColumn,
 		DDLActionModifyColumn,
 		DDLActionChangeColumn,
+		DDLActionRenameColumn,
 	}
 }
 

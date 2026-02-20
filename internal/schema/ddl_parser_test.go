@@ -332,6 +332,70 @@ func TestParseRenameTable_ProductionCase(t *testing.T) {
 	}
 }
 
+func TestParseAlterTable_RenameColumn(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		oldName string
+		newName string
+	}{
+		{
+			name:    "unquoted identifiers",
+			sql:     "ALTER TABLE test_table RENAME COLUMN old_col TO new_col",
+			oldName: "old_col",
+			newName: "new_col",
+		},
+		{
+			name:    "backtick-quoted identifiers",
+			sql:     "ALTER TABLE `test_table` RENAME COLUMN `old_col` TO `new_col`",
+			oldName: "old_col",
+			newName: "new_col",
+		},
+		{
+			name:    "mixed quoting",
+			sql:     "ALTER TABLE `test_table` RENAME COLUMN `old_col` TO new_col",
+			oldName: "old_col",
+			newName: "new_col",
+		},
+		{
+			name:    "database-qualified table",
+			sql:     "ALTER TABLE `mydb`.`test_table` RENAME COLUMN `a` TO `b`",
+			oldName: "a",
+			newName: "b",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewDDLParser(zap.NewNop())
+
+			stmt, err := parser.Parse(tt.sql)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if stmt.Type != DDLTypeAlterTable {
+				t.Fatalf("expected ALTER_TABLE, got %s", stmt.Type)
+			}
+
+			if len(stmt.Operations) != 1 {
+				t.Fatalf("expected 1 operation, got %d", len(stmt.Operations))
+			}
+
+			op := stmt.Operations[0]
+			if op.Action != DDLActionRenameColumn {
+				t.Errorf("expected RENAME_COLUMN, got %s", op.Action)
+			}
+			if op.OldName != tt.oldName {
+				t.Errorf("expected old name %q, got %q", tt.oldName, op.OldName)
+			}
+			if op.NewName != tt.newName {
+				t.Errorf("expected new name %q, got %q", tt.newName, op.NewName)
+			}
+		})
+	}
+}
+
 func TestIsIndexOperation(t *testing.T) {
 	tests := []struct {
 		input    string

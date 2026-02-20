@@ -209,6 +209,8 @@ func (u *DDLCacheUpdater) applyAlterOperation(schema *common.TableInfo, operatio
 		return u.modifyColumn(schema, operation.Column)
 	case DDLActionChangeColumn:
 		return u.changeColumn(schema, operation.OldName, operation.Column)
+	case DDLActionRenameColumn:
+		return u.renameColumn(schema, operation.OldName, operation.NewName)
 	default:
 		u.logger.Debug("Ignoring unsupported ALTER operation for cache update",
 			zap.String("action", string(operation.Action)),
@@ -328,6 +330,36 @@ func (u *DDLCacheUpdater) changeColumn(schema *common.TableInfo, oldName string,
 		zap.String("old_name", oldName),
 		zap.String("new_name", ddlColumn.Name),
 		zap.String("type", ddlColumn.Type))
+
+	return nil
+}
+
+// renameColumn renames a column without modifying its type
+func (u *DDLCacheUpdater) renameColumn(schema *common.TableInfo, oldName, newName string) error {
+	existing, exists := schema.Columns[oldName]
+	if !exists {
+		return fmt.Errorf("column %s does not exist", oldName)
+	}
+
+	// Update the name on the column
+	existing.Name = newName
+
+	// Remove old key, add under new key
+	delete(schema.Columns, oldName)
+	schema.Columns[newName] = existing
+
+	// Update column order
+	for i, name := range schema.ColumnOrder {
+		if name == oldName {
+			schema.ColumnOrder[i] = newName
+			break
+		}
+	}
+
+	u.logger.Debug("Renamed column in schema",
+		zap.String("table", schema.Name),
+		zap.String("old_name", oldName),
+		zap.String("new_name", newName))
 
 	return nil
 }
