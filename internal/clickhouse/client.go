@@ -574,8 +574,8 @@ func (c *Client) buildInsertQuery(tableInfo *common.TableInfo, events []*common.
 
 			// Special handling for ReplacingMergeTree version and soft delete columns
 			if colName == "_version" && event.Data[colName] == nil {
-				// Use MySQL event timestamp for version to preserve original transaction ordering
-				value = event.Timestamp.UnixNano()
+				// Use monotonic version from CDC to ensure unique ordering within same-second events
+				value = event.Version
 				exists = true
 			} else if colName == "_is_deleted" && event.Data[colName] == nil {
 				// Default _is_deleted to 0 for active records (ClickHouse ReplacingMergeTree convention: 0=active, 1=deleted)

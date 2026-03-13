@@ -19,6 +19,7 @@ type Event struct {
 	Database  string                 `json:"database"`
 	Table     string                 `json:"table"`
 	Timestamp time.Time              `json:"timestamp"`
+	Version   uint64                 `json:"version"`
 	Position  BinlogPosition         `json:"position"`
 	Data      map[string]interface{} `json:"data,omitempty"`
 	OldData   map[string]interface{} `json:"old_data,omitempty"`

@@ -25,22 +25,23 @@ type Flusher interface {
 }
 
 type CDC struct {
-	cfg           *config.MySQLConfig
-	logger        *zap.Logger
-	connector     *connector.Connector
-	syncer        *replication.BinlogSyncer
-	streamer      *replication.BinlogStreamer
-	position      mysql.Position
-	eventChan     chan *common.Event
-	errorChan     chan error
-	running       bool
-	mu            sync.RWMutex
-	wg            sync.WaitGroup
-	tableFilter   *common.TableFilter
-	stateManager  *state.Manager
-	flusher       Flusher // Pipeline flusher for ensuring event consistency
-	eventCount    uint64  // Changed to atomic uint64
-	lastEventTime time.Time
+	cfg            *config.MySQLConfig
+	logger         *zap.Logger
+	connector      *connector.Connector
+	syncer         *replication.BinlogSyncer
+	streamer       *replication.BinlogStreamer
+	position       mysql.Position
+	eventChan      chan *common.Event
+	errorChan      chan error
+	running        bool
+	mu             sync.RWMutex
+	wg             sync.WaitGroup
+	tableFilter    *common.TableFilter
+	stateManager   *state.Manager
+	flusher        Flusher // Pipeline flusher for ensuring event consistency
+	eventCount     uint64  // Changed to atomic uint64
+	versionCounter uint64  // Monotonic counter for unique _version values; lower 32 bits packed with timestamp
+	lastEventTime  time.Time
 
 	// Add shutdown synchronization
 	shutdownOnce sync.Once
@@ -680,12 +681,15 @@ func (c *CDC) createSingleRowEvent(header *replication.EventHeader, e *replicati
 		}
 	}
 
+	version := (uint64(header.Timestamp) << 32) | (atomic.AddUint64(&c.versionCounter, 1) & 0xFFFFFFFF)
+
 	return &common.Event{
 		ID:        uuid.New().String(),
 		Type:      eventType,
 		Database:  string(e.Table.Schema),
 		Table:     string(e.Table.Table),
 		Timestamp: time.Unix(int64(header.Timestamp), 0),
+		Version:   version,
 		Position:  c.GetPosition(),
 		Data:      dataMap,
 		OldData:   oldDataMap,
@@ -698,11 +702,14 @@ func (c *CDC) convertQueryEvent(header *replication.EventHeader, e *replication.
 		return nil
 	}
 
+	version := (uint64(header.Timestamp) << 32) | (atomic.AddUint64(&c.versionCounter, 1) & 0xFFFFFFFF)
+
 	return &common.Event{
 		ID:        uuid.New().String(),
 		Type:      common.EventTypeDDL,
 		Database:  string(e.Schema),
 		Timestamp: time.Unix(int64(header.Timestamp), 0),
+		Version:   version,
 		Position:  c.GetPosition(),
 		SQL:       string(e.Query),
 	}
