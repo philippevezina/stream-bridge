@@ -256,26 +256,40 @@ func (m *Manager) checkForExistingSnapshot(ctx context.Context) error {
 		return nil
 	}
 
-	// Filter out completed tables to only process remaining ones
+	// Filter out completed tables and tables excluded by current filter config
 	filteredTables := make(map[string]*state.TableSnapshot)
 	completedCount := 0
+	excludedByFilter := 0
 	for tableKey, tableSnap := range latestProgress.Tables {
 		tableSnap.Mu.RLock()
 		status := tableSnap.Status
+		database := tableSnap.Database
+		table := tableSnap.Table
 		tableSnap.Mu.RUnlock()
 
 		if status == "COMPLETED" || status == "SCHEMA_ONLY" {
 			completedCount++
-		} else {
-			// Reset IN_PROGRESS tables back to PENDING for retry
-			if status == "IN_PROGRESS" {
-				tableSnap.Mu.Lock()
-				tableSnap.Status = "PENDING"
-				tableSnap.Error = ""
-				tableSnap.Mu.Unlock()
-			}
-			filteredTables[tableKey] = tableSnap
+			continue
 		}
+
+		// Apply current table filter to allow excluding tables between restarts
+		if !m.tableFilter.ShouldProcessTable(database, table) {
+			excludedByFilter++
+			m.logger.Info("Excluding table from resumed snapshot: removed by updated table filter",
+				zap.String("database", database),
+				zap.String("table", table),
+				zap.String("previous_status", status))
+			continue
+		}
+
+		// Reset IN_PROGRESS tables back to PENDING for retry
+		if status == "IN_PROGRESS" {
+			tableSnap.Mu.Lock()
+			tableSnap.Status = "PENDING"
+			tableSnap.Error = ""
+			tableSnap.Mu.Unlock()
+		}
+		filteredTables[tableKey] = tableSnap
 	}
 
 	// Update progress with filtered tables
@@ -289,6 +303,7 @@ func (m *Manager) checkForExistingSnapshot(ctx context.Context) error {
 		zap.String("snapshot_id", latestProgress.ID),
 		zap.Int("total_tables", latestProgress.TotalTables),
 		zap.Int("completed_tables", completedCount),
+		zap.Int("excluded_by_filter", excludedByFilter),
 		zap.Int("remaining_tables", len(filteredTables)))
 
 	return nil
