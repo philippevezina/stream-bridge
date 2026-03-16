@@ -37,49 +37,46 @@ func (c *Connector) ConnectWithContext(ctx context.Context, database string) (*c
 	addr := fmt.Sprintf("%s:%d", c.cfg.Host, c.cfg.Port)
 
 	if c.cfg.SSLMode == config.SSLModeDisabled {
-		// For disabled mode, connect without SSL
 		return client.Connect(addr, c.cfg.Username, c.cfg.Password, database)
 	}
 
-	if c.cfg.SSLMode == config.SSLModePreferred {
-		// For preferred mode, try SSL first, fallback to plaintext on failure
-		conn, err := client.Connect(addr, c.cfg.Username, c.cfg.Password, database)
-		if err != nil {
-			return nil, err
-		}
+	// Build TLS config before connecting so it's available during the handshake.
+	// The go-mysql library uses tlsConfig during the auth handshake (before Connect returns),
+	// so it must be passed as an option, not set after the connection is established.
+	tlsConfig, err := c.buildTLSConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build TLS config: %w", err)
+	}
 
-		tlsConfig, err := c.buildTLSConfig()
-		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("failed to build TLS config: %w", err)
-		}
-
-		// Try to set TLS config, but don't fail if it doesn't work
-		if tlsConfig != nil {
+	var options []client.Option
+	if tlsConfig != nil {
+		options = append(options, func(conn *client.Conn) error {
 			conn.SetTLSConfig(tlsConfig)
-			c.logger.Debug("SSL/TLS preferred mode - attempting encrypted connection")
+			return nil
+		})
+	}
+
+	if c.cfg.SSLMode == config.SSLModePreferred {
+		// For preferred mode, try with TLS first, fallback to plaintext
+		conn, err := client.Connect(addr, c.cfg.Username, c.cfg.Password, database, options...)
+		if err != nil {
+			c.logger.Debug("SSL/TLS preferred mode - TLS connection failed, falling back to plaintext",
+				zap.Error(err))
+			return client.Connect(addr, c.cfg.Username, c.cfg.Password, database)
 		}
+		c.logger.Debug("SSL/TLS preferred mode - connected with encryption")
 		return conn, nil
 	}
 
 	// For required, verify_ca, and verify_identity modes, SSL is mandatory
-	conn, err := client.Connect(addr, c.cfg.Username, c.cfg.Password, database)
+	conn, err := client.Connect(addr, c.cfg.Username, c.cfg.Password, database, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	tlsConfig, err := c.buildTLSConfig()
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to build TLS config: %w", err)
-	}
-
-	if tlsConfig != nil {
-		conn.SetTLSConfig(tlsConfig)
-		c.logger.Info("SSL/TLS enabled",
-			zap.String("mode", c.cfg.SSLMode),
-			zap.String("host", c.cfg.Host))
-	}
+	c.logger.Info("SSL/TLS enabled",
+		zap.String("mode", c.cfg.SSLMode),
+		zap.String("host", c.cfg.Host))
 
 	return conn, nil
 }
